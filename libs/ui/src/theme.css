@@ -1,0 +1,138 @@
+/*
+  Terminal-amber design tokens, mapped onto shadcn/ui's standard color-role
+  naming (background/foreground/primary/muted/etc.) so ordinary Tailwind
+  utilities (bg-background, text-muted-foreground, border-input, ...) read
+  correctly everywhere. `@theme` below registers the dark palette as the
+  default token values (and generates the utility classes); `[data-theme='light']`
+  overrides the same custom properties with the light palette. Toggle by
+  setting `data-theme="dark" | "light"` on <html> — see `ThemeProvider` in
+  `@krutrim_agent/ui`. Imported once per app, alongside `@import "tailwindcss";`.
+*/
+@import 'tw-animate-css';
+
+/*
+  Tailwind's automatic content detection is scoped to each app's Vite root
+  (apps/web, apps/desktop) and never walks sideways into sibling `libs/*`
+  packages — so classNames used in libs/agent-ui, libs/agent-renderers, and
+  this package itself would otherwise be silently dropped from the compiled
+  CSS. Paths below are resolved relative to this file (libs/ui/src/theme.css)
+  and only resolve for IN-REPO consumers (apps/web, apps/desktop). An
+  external package consumer (installing this package from node_modules
+  instead) won't have these particular paths on disk, so these lines are
+  simply inert for them, not broken — see the root README for the
+  equivalent source-scanning setup an external consumer needs instead, to
+  scan this package's built JS output rather than its TypeScript source.
+*/
+@source './**/*.{ts,tsx}';
+@source '../../agent-ui/src/**/*.{ts,tsx}';
+@source '../../agent-renderers/src/**/*.{ts,tsx}';
+
+@theme {
+  --color-background: #0b0e11;
+  --color-foreground: #d7dbde;
+
+  --color-card: #12161b;
+  --color-card-foreground: #d7dbde;
+
+  --color-popover: #12161b;
+  --color-popover-foreground: #d7dbde;
+
+  --color-primary: #e8a33d;
+  --color-primary-foreground: #191008;
+
+  --color-secondary: #0e1114;
+  --color-secondary-foreground: #d7dbde;
+
+  --color-muted: #0e1114;
+  --color-muted-foreground: #7c8790;
+
+  --color-accent: #e8a33d;
+  --color-accent-foreground: #191008;
+
+  --color-destructive: #d9635b;
+  --color-destructive-foreground: #fdf2f1;
+
+  --color-success: #4fb477;
+  --color-success-foreground: #06170d;
+
+  --color-border: #232a31;
+  --color-input: #232a31;
+  --color-ring: #e8a33d;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+
+  --radius: 0.5rem;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+/* Warm paper, not stark white — keeps the same amber signal, ink text, hairline borders. */
+[data-theme='light'] {
+  --color-background: #f5f2ea;
+  --color-foreground: #201c15;
+
+  --color-card: #fffdf9;
+  --color-card-foreground: #201c15;
+
+  --color-popover: #fffdf9;
+  --color-popover-foreground: #201c15;
+
+  --color-primary: #b4700f;
+  --color-primary-foreground: #fffaf1;
+
+  --color-secondary: #eae4d5;
+  --color-secondary-foreground: #201c15;
+
+  --color-muted: #eae4d5;
+  --color-muted-foreground: #7a7263;
+
+  --color-accent: #b4700f;
+  --color-accent-foreground: #fffaf1;
+
+  --color-destructive: #b3392f;
+  --color-destructive-foreground: #fff6f5;
+
+  --color-success: #2f7a4f;
+  --color-success-foreground: #f1fbf5;
+
+  --color-border: #ddd5c0;
+  --color-input: #ddd5c0;
+  --color-ring: #b4700f;
+
+  color-scheme: light;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

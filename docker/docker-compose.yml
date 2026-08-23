@@ -1,0 +1,110 @@
+# Full stack on your laptop's Docker engine: frontend + backend + celery
+# worker + redis (+ optional ollama), one `docker compose up` instead of
+# starting each piece by hand. See docker/README.md for what each file is
+# and the faisslite/SSH-forwarding setup this build needs.
+#
+# `backend` and `celery-worker` get /var/run/docker.sock bind-mounted, so
+# when their code asks the Docker SDK to create a krutrim-agent-sandbox-* container
+# it's asking THIS SAME laptop engine to start a sibling container — not
+# nested Docker-in-Docker. `docker ps` on the host shows those sandbox
+# containers right alongside backend/celery-worker/frontend/redis.
+#
+#
+# All ${VAR} values here (REDIS_USER, REDIS_PASSWORD, VITE_BACKEND_URL, ...)
+# come from ONE shared .env at the repo root — docker/.env is a committed
+# symlink to it, so plain `docker compose` picks it up with no extra flags.
+# See ../.env.example for the full list.
+#
+# Run from the repo root:
+#   docker compose -f docker/docker-compose.yml build
+#   docker compose -f docker/docker-compose.yml up
+
+name: krutrim-agent
+
+services:
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - '6379:6379'
+    # Array form matters here: a plain string command gets whitespace-split,
+    # which silently DROPS a blank ${REDIS_PASSWORD} instead of passing it
+    # through as an empty argument — redis-server would then either error
+    # on a missing --requirepass value or misparse the next token as the
+    # password. The array form preserves "" exactly, which is how Redis
+    # itself represents "no password" (auth off, today's default).
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}']
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  backend:
+    image: krutrim_agent-backend:latest
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend.Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
+      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
+      TAVILY_SEARCH_API_BASE: ${TAVILY_SEARCH_API_BASE:+http://host.docker.internal:4100/}
+      LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
+    ports:
+      - '8000:8000'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Sessions/projects/sandbox-container registry (see
+      # krutrim_agent_management/local.py's STORAGE_ROOT layout) — bind-mounted to
+      # your real home dir so it survives `docker compose down`/rebuilds,
+      # not just container restarts.
+      - ${HOME}/.krutrim_agent:/data
+      # Provider settings + per-agent run transcripts (gitignored, written
+      # at runtime) — same reasoning.
+      - ../backend/harness/memory:/app/harness/memory
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  celery-worker:
+    image: krutrim_agent-celery:latest
+    build:
+      context: ../backend
+      dockerfile: ../docker/celery.Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
+      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
+      OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Same STORAGE_ROOT as `backend` — the reaper scans/updates
+      # containers.db, so both processes must point at the same data.
+      - ${HOME}/.krutrim_agent:/data
+      - ../backend/harness/memory:/app/harness/memory
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  frontend:
+    image: krutrim_agent-frontend:latest
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:8000}
+    ports:
+      - '4200:80'
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ollama-models:
+  redis-data:
+

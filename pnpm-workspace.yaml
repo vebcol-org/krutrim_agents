@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - libs/*
+
+allowBuilds:
+  esbuild: false
+  nx: false
+  unrs-resolver: false
+
+onlyBuiltDependencies:
+  - nx
+  - esbuild
+  - unrs-resolver
+  - electron
+  - electron-builder
+  - "@scarf/scarf"

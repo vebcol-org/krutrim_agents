@@ -1,0 +1,21 @@
+[project]
+name = "krutrim-agent-sandbox"
+version = "0.1.0"
+description = "Docker-isolated sandbox execution backend, the sandbox-runtime factory, and the owner-scoped container lifecycle registry."
+requires-python = ">=3.11"
+dependencies = [
+    "deepagents>=0.7.0",
+    "docker>=7.2.0",
+    "pydantic>=2.13.4",
+    "redis>=5.0.0",
+    "krutrim-agent-management",
+    "krutrim-agent-utils",
+]
+
+[tool.uv.sources]
+krutrim-agent-management = { workspace = true }
+krutrim-agent-utils = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

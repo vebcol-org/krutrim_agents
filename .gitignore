@@ -1,0 +1,60 @@
+# Node / Nx
+node_modules/
+dist/
+tmp/
+.nx/cache/
+.nx/workspace-data/
+*.tsbuildinfo
+.temp
+
+# Local triage notes
+.clean
+
+
+# Real secrets live only in the root .env (git-ignored below). backend/.env,
+# apps/web/.env.local, and docker/.env are committed SYMLINKS pointing at
+# it (see .env.example / docker/README.md) — no secrets in them, just a
+# path, so they're explicitly un-ignored.
+.env
+.env.local
+!/backend/.env
+!/apps/web/.env.local
+!/docker/.env
+
+# Python / backend
+backend/.venv/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.pytest_cache/
+backend/harness/memory/runs/
+backend/harness/memory/settings.json
+backend/.ruff_cache/
+backend/.coverage
+*.egg-info/
+
+# Docker build secrets (github_token for the private faisslite clone)
+docker/.secrets/
+
+# Electron build output
+apps/desktop/release/
+apps/desktop/dist-renderer/
+
+
+
+# Editors / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Logs
+*.log
+
+vite.config.*.timestamp*
+vitest.config.*.timestamp*
+coverage
+celerybeat-schedule.db
+dev_cache.py
+.zed
+.vscode
+.nx

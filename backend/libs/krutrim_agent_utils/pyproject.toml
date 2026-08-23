@@ -1,0 +1,10 @@
+[project]
+name = "krutrim-agent-utils"
+version = "0.1.0"
+description = "Zero-dependency shared foundation: the dotted-module-path plug-in discovery pattern (PluginRegistry) and atomic-write file helpers reused across every other package in this workspace."
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.28.1"]
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

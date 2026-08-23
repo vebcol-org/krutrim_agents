@@ -1,0 +1,281 @@
+/*
+  Self-contained token set for @krutrim_agent/agent-dashboard — namespaced
+  --kdash-* so it never collides with a host app's own design tokens (this
+  package does not depend on @krutrim_agent/ui; it must work standalone).
+  Import once: `import '@krutrim_agent/agent-dashboard/theme.css'`.
+
+  Light is the default (bare selector, no attribute needed). Dark is applied
+  by <AgentDashboard theme="dark"> setting data-kdash-theme="dark" on its own
+  root element — scoped to that subtree, never the document root — so it can
+  sit inside a host page without touching the host's own theme.
+*/
+
+.kdash-root {
+  --kdash-background: #ffffff;
+  --kdash-surface: #f7f8fa;
+  --kdash-border: #e2e5ea;
+  --kdash-text: #1a1d21;
+  --kdash-muted: #6b7280;
+  --kdash-accent: #2563eb;
+
+  --kdash-series-1: #2563eb;
+  --kdash-series-2: #16a34a;
+  --kdash-series-3: #d97706;
+  --kdash-series-4: #dc2626;
+  --kdash-series-5: #7c3aed;
+  --kdash-series-6: #0891b2;
+  --kdash-series-7: #db2777;
+  --kdash-series-8: #65a30d;
+
+  --kdash-grid-line: #eceff2;
+  --kdash-up: #16a34a;
+  --kdash-down: #dc2626;
+
+  --kdash-radius: 0.5rem;
+  --kdash-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif;
+  --kdash-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+
+  background: var(--kdash-background);
+  color: var(--kdash-text);
+  font-family: var(--kdash-font);
+  box-sizing: border-box;
+}
+
+.kdash-root[data-kdash-theme='dark'] {
+  --kdash-background: #0b0e11;
+  --kdash-surface: #12161b;
+  --kdash-border: #232a31;
+  --kdash-text: #d7dbde;
+  --kdash-muted: #7c8790;
+  --kdash-accent: #3b82f6;
+
+  --kdash-series-1: #3b82f6;
+  --kdash-series-2: #22c55e;
+  --kdash-series-3: #f59e0b;
+  --kdash-series-4: #ef4444;
+  --kdash-series-5: #a855f7;
+  --kdash-series-6: #06b6d4;
+  --kdash-series-7: #ec4899;
+  --kdash-series-8: #84cc16;
+
+  --kdash-grid-line: #1c2126;
+  --kdash-up: #22c55e;
+  --kdash-down: #ef4444;
+}
+
+.kdash-root *,
+.kdash-root *::before,
+.kdash-root *::after {
+  box-sizing: border-box;
+}
+
+.kdash-panel {
+  background: var(--kdash-surface);
+  border: 1px solid var(--kdash-border);
+  border-radius: var(--kdash-radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.kdash-panel-title {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--kdash-border);
+  color: var(--kdash-text);
+  flex: 0 0 auto;
+}
+
+.kdash-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.kdash-muted {
+  color: var(--kdash-muted);
+  font-size: 0.8rem;
+}
+
+.kdash-empty-state,
+.kdash-error-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem;
+  text-align: center;
+}
+
+.kdash-error-state {
+  color: var(--kdash-down);
+}
+
+.kdash-page-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--kdash-border);
+  margin-bottom: 0.75rem;
+  flex: 0 0 auto;
+}
+
+.kdash-page-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--kdash-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.kdash-page-tab[aria-selected='true'] {
+  color: var(--kdash-text);
+  border-bottom-color: var(--kdash-accent);
+}
+
+.kdash-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex: 0 0 auto;
+}
+
+/*
+  Responsive dashboard grid — see dashboard-grid.tsx, which precomputes each
+  item's --kdash-item-*-lg/-md custom properties (proportionally rescaled
+  onto whichever column count is active) so the actual breakpoint switch
+  happens here, in CSS, rather than via a JS resize listener.
+
+  Three tiers:
+    >1024px      desktop  — the schema's native 12-column layout, unchanged.
+    641-1024px   tablet   — x/w rescaled onto a 6-column grid.
+    <=640px      phone    — 1 column; items stack full-width, in DOM order
+                             (dashboard-grid.tsx sorts by y then x), each
+                             still spanning its own `h` row units so a chart
+                             that needed more vertical room keeps it.
+*/
+.kdash-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: var(--kdash-row-height, 60px);
+  gap: 0.75rem;
+}
+
+.kdash-grid-item {
+  grid-column: calc(var(--kdash-item-x-lg) + 1) / span var(--kdash-item-w-lg);
+  grid-row: calc(var(--kdash-item-y) + 1) / span var(--kdash-item-h);
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 1024px) {
+  .kdash-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .kdash-grid-item {
+    grid-column: calc(var(--kdash-item-x-md) + 1) / span var(--kdash-item-w-md);
+  }
+}
+
+@media (max-width: 640px) {
+  .kdash-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kdash-grid-item {
+    grid-column: 1 / -1;
+    grid-row: auto / span var(--kdash-item-h);
+  }
+}
+
+.kdash-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.kdash-filter-label {
+  color: var(--kdash-muted);
+}
+
+.kdash-filter select,
+.kdash-filter input {
+  font: inherit;
+  background: var(--kdash-surface);
+  color: var(--kdash-text);
+  border: 1px solid var(--kdash-border);
+  border-radius: 0.25rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.kdash-kpi {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 0.25rem;
+  height: 100%;
+  padding: 1rem;
+}
+
+.kdash-kpi-value {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.kdash-kpi-delta-up {
+  color: var(--kdash-up);
+}
+
+.kdash-kpi-delta-down {
+  color: var(--kdash-down);
+}
+
+.kdash-table-wrap {
+  height: 100%;
+  overflow: auto;
+}
+
+.kdash-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.kdash-table th,
+.kdash-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--kdash-border);
+  white-space: nowrap;
+}
+
+.kdash-table th {
+  position: sticky;
+  top: 0;
+  background: var(--kdash-surface);
+  cursor: pointer;
+  user-select: none;
+}
+
+.kdash-table-load-more {
+  display: block;
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--kdash-border);
+  color: var(--kdash-accent);
+  font: inherit;
+  cursor: pointer;
+}

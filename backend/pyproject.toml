@@ -1,0 +1,47 @@
+[tool.uv.workspace]
+members = ["libs/*", "services/*"]
+
+[tool.uv.sources]
+krutrim-agent-utils = { workspace = true }
+krutrim-agent-management = { workspace = true }
+krutrim-agent-sandbox = { workspace = true }
+krutrim-agent-rag = { workspace = true }
+krutrim-agents-core = { workspace = true }
+krutrim-agents = { workspace = true }
+krutrim-agent-extensions = { workspace = true }
+krutrim-agent-backend = { workspace = true }
+krutrim-agent-celery-core = { workspace = true }
+krutrim-agent-celery = { workspace = true }
+
+[tool.ty.rules]
+invalid-return-type = "ignore"
+
+[dependency-groups]
+# Virtual workspace root — no [project] table of its own (nothing lives
+# directly in backend/ anymore; see libs/ and services/). This dev group
+# exists so `uv run pytest` from backend/ has every workspace package plus
+# test tooling installed into one shared venv, since backend/tests/ isn't
+# itself a workspace member and needs to import across all five packages.
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.28.1",
+    "pytest-cov>=7.1.0",
+    # faisslite is a real dependency of krutrim-agent-rag now (embeddings.py),
+    # pulled in transitively via the workspace member below — no longer a
+    # standalone dev-only dependency.
+    "krutrim-agent-utils",
+    "krutrim-agent-management",
+    "krutrim-agent-sandbox",
+    "krutrim-agent-rag",
+    "krutrim-agents-core",
+    "krutrim-agents",
+    "krutrim-agent-extensions",
+    "krutrim-agent-backend",
+    "krutrim-agent-celery-core",
+    "krutrim-agent-celery",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

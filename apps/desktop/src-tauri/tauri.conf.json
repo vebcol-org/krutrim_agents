@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Krutrim Agent",
+  "version": "0.1.0",
+  "identifier": "com.krutrimagent.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm exec vite --config vite.renderer.config.mts",
+    "beforeBuildCommand": "pnpm exec vite build --config vite.renderer.config.mts",
+    "devUrl": "http://localhost:4300",
+    "frontendDist": "../../../dist/apps/desktop/renderer"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Krutrim Agent",
+        "width": 1280,
+        "height": 820
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"]
+  }
+}

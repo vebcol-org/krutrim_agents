@@ -1,0 +1,16 @@
+[project]
+name = "krutrim-agent-celery-core"
+version = "0.1.0"
+description = "Reusable Celery engine: app construction (broker/backend/timezone/beat-schedule wiring), extracted from krutrim_agent_celery so a second Celery service (e.g. a separate deployment's own tasks) can build its own app the same way without re-deriving this plumbing."
+requires-python = ">=3.11"
+dependencies = [
+    "celery[redis]>=5.6.3",
+    "krutrim-agent-management",
+]
+
+[tool.uv.sources]
+krutrim-agent-management = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

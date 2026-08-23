@@ -1,0 +1,270 @@
+"""Abstract, storage-agnostic contract every backend must satisfy. `LocalStorage` (see
+`local.py`) is the only implementation today. Hierarchy: `Project` -> (`Agent` | `Chat`)
+-> `SessionInfo`, keyed by `session_id` alone; see `models.py` for field-level shape.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+from krutrim_agent_management.models import (
+    Agent,
+    Chat,
+    ContainerRecord,
+    OwnerType,
+    Project,
+    SessionInfo,
+    SharingScope,
+)
+
+
+class Storage(ABC):
+    """Persists projects, agents, chats, sessions (+ their checkpoints/usage),
+    per-project agent memory, and a generic result cache for MCP/RAG/tool calls.
+    """
+
+    # -- Projects -------------------------------------------------------
+
+    @abstractmethod
+    async def create_project(
+        self, project_title: str, project_information: str = ""
+    ) -> Project: ...
+
+    @abstractmethod
+    async def get_project(self, project_id: str) -> Project:
+        """Raises `KeyError` if `project_id` is unknown."""
+
+    @abstractmethod
+    async def list_projects(self) -> list[Project]: ...
+
+    @abstractmethod
+    async def update_project(
+        self,
+        project_id: str,
+        *,
+        project_title: str | None = None,
+        project_information: str | None = None,
+    ) -> Project:
+        """Raises `KeyError` if `project_id` is unknown. Unset fields are left unchanged."""
+
+    @abstractmethod
+    async def delete_project(self, project_id: str) -> None:
+        """Raises `KeyError` if `project_id` is unknown. Cascades: every `Agent` and `Chat` in
+        this project, and transitively every one of their `Session`s, plus memory and cache."""
+
+    # -- Agents (named instances of a registered profile, live inside one project) --
+
+    @abstractmethod
+    async def create_agent(
+        self, project_id: str, agent_key: str, display_name: str
+    ) -> Agent:
+        """Raises `KeyError` if `project_id` is unknown."""
+
+    @abstractmethod
+    async def get_agent(self, agent_id: str) -> Agent:
+        """Raises `KeyError` if `agent_id` is unknown."""
+
+    @abstractmethod
+    async def list_agents(self, project_id: str) -> list[Agent]: ...
+
+    @abstractmethod
+    async def update_agent(
+        self, agent_id: str, *, display_name: str | None = None
+    ) -> Agent:
+        """Raises `KeyError` if `agent_id` is unknown. Unset fields are left unchanged."""
+
+    @abstractmethod
+    async def delete_agent(self, agent_id: str) -> None:
+        """Raises `KeyError` if `agent_id` is unknown. Cascades: every `Session` owned by this agent."""
+
+    @abstractmethod
+    async def update_agent_sandbox_policy(
+        self,
+        agent_id: str,
+        *,
+        sharing: SharingScope | None = None,
+        idle_timeout_seconds: int | None = None,
+        resource_overrides: dict[str, int] | None = None,
+    ) -> Agent:
+        """Raises `KeyError` if `agent_id` is unknown. Unset fields are left unchanged."""
+
+    # -- Chats (optionally project-scoped, non-agentic) ------------------
+
+    @abstractmethod
+    async def create_chat(
+        self,
+        display_name: str,
+        provider: str,
+        model: str,
+        project_id: str | None = None,
+    ) -> Chat:
+        """Raises `KeyError` if `project_id` is given but unknown. `project_id=None` creates a
+        standalone chat (today's plain `/api/chat` behavior)."""
+
+    @abstractmethod
+    async def get_chat(self, chat_id: str) -> Chat:
+        """Raises `KeyError` if `chat_id` is unknown."""
+
+    @abstractmethod
+    async def list_chats(self, project_id: str | None = None) -> list[Chat]:
+        """`project_id=None` lists standalone chats (no project); otherwise lists that
+        project's chats. There is currently no "list every chat regardless of project" call."""
+
+    @abstractmethod
+    async def update_chat(
+        self, chat_id: str, *, display_name: str | None = None
+    ) -> Chat:
+        """Raises `KeyError` if `chat_id` is unknown. Unset fields are left unchanged."""
+
+    @abstractmethod
+    async def move_chat(self, chat_id: str, *, project_id: str | None) -> Chat:
+        """Sets (or, passing `None`, clears) this chat's project. Raises `KeyError` if `chat_id`
+        is unknown, or if `project_id` is given but unknown."""
+
+    @abstractmethod
+    async def delete_chat(self, chat_id: str) -> None:
+        """Raises `KeyError` if `chat_id` is unknown. Cascades: every `Session` owned by this chat."""
+
+    @abstractmethod
+    async def update_chat_sandbox_policy(
+        self,
+        chat_id: str,
+        *,
+        sharing: SharingScope | None = None,
+        idle_timeout_seconds: int | None = None,
+        resource_overrides: dict[str, int] | None = None,
+    ) -> Chat:
+        """Raises `KeyError` if `chat_id` is unknown. Unset fields are left unchanged. Has no
+        effect on sandbox behavior while the chat's `project_id` is `None` (see `Chat` docstring)
+        but is still stored, so it takes effect immediately if the chat is later moved into a project."""
+
+    # -- Sandbox sharing policy (project-level default) -------------------
+
+    @abstractmethod
+    async def update_project_sandbox_policy(
+        self,
+        project_id: str,
+        *,
+        sharing: SharingScope | None = None,
+        idle_timeout_seconds: int | None = None,
+        resource_overrides: dict[str, int] | None = None,
+    ) -> Project:
+        """Raises `KeyError` if `project_id` is unknown. Unset fields are left unchanged
+        (same partial-update convention as `update_project`) — there is currently no way
+        to explicitly reset `idle_timeout_seconds`/`resource_overrides` back to "use server
+        default" once set to a specific value; a future `reset_*` method would be additive."""
+
+    @abstractmethod
+    async def update_session_sandbox_policy(
+        self,
+        session_id: str,
+        *,
+        sharing: SharingScope | None = None,
+        attached_to_session_id: str | None = None,
+        linked_session_ids: list[str] | None = None,
+    ) -> SessionInfo:
+        """Raises `KeyError` if `session_id` is unknown. Unset fields are left unchanged — note this
+        means an existing `attached_to_session_id` cannot be cleared via this method today."""
+
+    # -- Agent memory (projects/{project_id}/MEMORY.md) -----------------
+
+    @abstractmethod
+    async def read_memory(self, project_id: str) -> str:
+        """Returns "" if no memory has been written yet."""
+
+    @abstractmethod
+    async def write_memory(self, project_id: str, content: str) -> None: ...
+
+    # -- Sessions (owned by exactly one Agent or Chat; keyed by session_id alone) --
+
+    @abstractmethod
+    async def create_session(self, owner_type: OwnerType, owner_id: str) -> SessionInfo:
+        """Raises `KeyError` if the owning agent/chat is unknown. `project_id` on the resulting
+        `SessionInfo` is resolved from the owner (may be `None` for a project-less chat)."""
+
+    @abstractmethod
+    async def get_session(self, session_id: str) -> SessionInfo:
+        """Raises `KeyError` if `session_id` is unknown."""
+
+    @abstractmethod
+    async def list_sessions(
+        self, owner_type: OwnerType, owner_id: str
+    ) -> list[SessionInfo]: ...
+
+    @abstractmethod
+    async def update_session(
+        self, session_id: str, *, display_name: str | None = None
+    ) -> SessionInfo:
+        """Raises `KeyError` if `session_id` is unknown. Unset fields are left unchanged."""
+
+    @abstractmethod
+    async def delete_session(self, session_id: str) -> None:
+        """Raises `KeyError` if `session_id` is unknown."""
+
+    # -- Checkpointer (sessions/{session_id}/checkpointer.json) ---------
+
+    @abstractmethod
+    async def read_checkpoint(self, session_id: str) -> dict[str, Any] | None:
+        """Returns None if no checkpoint has been written yet."""
+
+    @abstractmethod
+    async def write_checkpoint(self, session_id: str, data: dict[str, Any]) -> None: ...
+
+    # -- Usage (sessions/{session_id}/usage.json) ------------------------
+
+    @abstractmethod
+    async def read_usage(self, session_id: str) -> dict[str, Any] | None:
+        """Returns None if no usage has been recorded yet."""
+
+    @abstractmethod
+    async def write_usage(self, session_id: str, data: dict[str, Any]) -> None: ...
+
+    # -- Cache (MCP / RAG / tool result caching) -------------------------
+
+    @abstractmethod
+    async def cache_get(self, project_id: str, namespace: str, key: str) -> Any | None:
+        """Returns None on a cache miss. `namespace` separates callers (e.g. one per MCP server or tool)."""
+
+    @abstractmethod
+    async def cache_set(
+        self, project_id: str, namespace: str, key: str, value: Any
+    ) -> None: ...
+
+    # -- Sandbox containers (owner_id -> ContainerRecord; owner_id may be a session, project, or channel) --
+
+    @abstractmethod
+    async def get_container(self, owner_id: str) -> ContainerRecord | None:
+        """Returns None if no container record exists for this owner (never started, or already reaped)."""
+
+    @abstractmethod
+    async def upsert_container(self, record: ContainerRecord) -> None:
+        """Insert or fully replace the record for `record.owner_id`."""
+
+    @abstractmethod
+    async def list_containers(
+        self, *, status: str | None = None
+    ) -> list[ContainerRecord]:
+        """Used by the idle-container reaper to scan for candidates. `status=None` returns all."""
+
+    @abstractmethod
+    async def delete_container(self, owner_id: str) -> None:
+        """No-op (not an error) if no record exists for this owner."""
+
+    # -- Session workspace mirror (sessions/{session_id}/workspace/) -----
+    # A filesystem mirror of a sandbox container's /workspace, synced on
+    # teardown and read on hot-reload or for passive (no-container-running) reads.
+
+    @abstractmethod
+    async def read_workspace_files(self, session_id: str) -> list[str]:
+        """Lists relative paths under the session's workspace mirror. Empty list if none synced yet."""
+
+    @abstractmethod
+    async def read_workspace_file(self, session_id: str, path: str) -> bytes | None:
+        """Returns None if `path` isn't present in the mirror."""
+
+    @abstractmethod
+    async def sync_workspace_from_container(
+        self, session_id: str, files: list[tuple[str, bytes]]
+    ) -> None:
+        """Overwrites (or creates) each given path in the session's workspace mirror."""

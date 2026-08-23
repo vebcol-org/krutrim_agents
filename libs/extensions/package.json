@@ -1,0 +1,23 @@
+{
+  "name": "@krutrim_agent/extensions",
+  "version": "0.1.0",
+  "description": "Frontend mirror of the backend's krutrim_agent_extensions: security-hook contracts (AuthProvider, AgentVisibilityFilter), an ExtensionProvider React context, and a runtime drift-check banner. Community ships all-no-op hooks.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  }
+}

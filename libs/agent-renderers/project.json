@@ -1,0 +1,9 @@
+{
+  "name": "agent-renderers",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/agent-renderers/src",
+  "projectType": "library",
+  "tags": [],
+  "// targets": "to see all targets run: nx show project agent-renderers --web",
+  "targets": {}
+}

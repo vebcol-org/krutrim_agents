@@ -1,0 +1,19 @@
+{
+  "name": "@krutrim_agent/shared-types",
+  "version": "0.1.0",
+  "description": "Types and constants shared between frontend packages (e.g. DEFAULT_BACKEND_URL) — no runtime dependencies.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false
+}

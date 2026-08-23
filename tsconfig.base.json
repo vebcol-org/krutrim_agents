@@ -1,0 +1,30 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "bundler",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "isolatedModules": true,
+    "lib": ["es2022", "dom"],
+    "module": "esnext",
+    "skipLibCheck": true,
+    "target": "es2022",
+    "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "strict": true,
+    "paths": {
+      "@krutrim_agent/agent-ui": ["./libs/agent-ui/src/index.ts"],
+      "@krutrim_agent/shared-types": ["./libs/shared-types/src/index.ts"],
+      "@krutrim_agent/agent-renderers": ["./libs/agent-renderers/src/index.ts"],
+      "@krutrim_agent/agent-dashboard": ["./libs/agent-dashboard/src/index.ts"],
+      "@krutrim_agent/ui": ["./libs/ui/src/index.ts"],
+      "@krutrim_agent/tauri-utils": ["./libs/tauri-utils/src/index.ts"],
+      "@krutrim_agent/extensions": ["./libs/extensions/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "tmp"]
+}

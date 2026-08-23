@@ -1,0 +1,35 @@
+{
+  "name": "@krutrim_agent/agent-renderers",
+  "version": "0.1.0",
+  "description": "Per-agent-type canvas renderer registry (research/trading/sales) plus the default markdown/chart/news renderer, keyed off an agent key.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "peerDependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "dependencies": {
+    "@krutrim_agent/shared-types": "workspace:*",
+    "@krutrim_agent/ui": "workspace:*",
+    "katex": "^0.16.11",
+    "react-markdown": "^9.0.1",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0"
+  }
+}

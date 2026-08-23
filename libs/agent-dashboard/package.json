@@ -1,0 +1,31 @@
+{
+  "name": "@krutrim_agent/agent-dashboard",
+  "version": "0.1.0",
+  "description": "Standalone rendering library for AgentDashboardWorkbook payloads — resolves chart data against filters, renders all workbook chart types (ECharts + lightweight-charts for candlestick), lays out pages, and supports lazy/chunked data loading. Framework-agnostic of any specific agent; not wired into apps/web yet.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./theme.css": "./src/theme.css"
+  },
+  "files": [
+    "dist",
+    "src/theme.css"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "peerDependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "dependencies": {
+    "echarts": "^6.1.0",
+    "lightweight-charts": "^5.2.1"
+  }
+}

@@ -1,0 +1,3 @@
+{"id": "quick-fact", "prompt": "What's the current status of Apple's stock — just give me the latest price you can find.", "expect_render_content": false, "required_substrings": []}
+{"id": "full-analysis", "prompt": "Give me a full trading analysis of NVDA.", "expect_render_content": true, "required_substrings": ["Not Financial Advice", "Risks", "Summary"]}
+{"id": "sector-question", "prompt": "How are semiconductor stocks doing this month, broadly?", "expect_render_content": true, "required_substrings": ["Not Financial Advice"]}

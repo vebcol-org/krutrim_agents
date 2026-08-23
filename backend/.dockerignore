@@ -1,0 +1,18 @@
+.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Secrets / local-only overrides — passed in at container runtime via
+# docker-compose `environment`/`env_file`, never baked into the image.
+.env
+.env.local
+
+# Runtime data written by the app itself — bind-mounted at runtime instead
+# (see ../docker/docker-compose.yml), so a stale copy never gets baked in.
+harness/memory/runs/
+harness/memory/settings.json
+
+.git/

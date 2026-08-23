@@ -1,0 +1,18 @@
+[project]
+name = "krutrim-agent-management"
+version = "0.1.0"
+description = "Project/session/container persistence (SQLite + filesystem) behind a swappable Storage interface, plus shared app settings."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "python-dotenv>=1.0.1",
+    "krutrim-agent-utils",
+]
+
+[tool.uv.sources]
+krutrim-agent-utils = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

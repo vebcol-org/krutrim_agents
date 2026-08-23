@@ -1,0 +1,39 @@
+[project]
+name = "krutrim-agent-backend"
+version = "0.1.0"
+description = "FastAPI app: AG-UI agent-run streaming endpoint, plain chat endpoint, project/session/settings CRUD routes."
+requires-python = ">=3.11"
+dependencies = [
+    "ag-ui-langgraph>=0.0.42",
+    "ag-ui-protocol>=0.1.19",
+    "langgraph>=1.2.10",
+    "langgraph-checkpoint-sqlite>=3.1.1",
+    "langchain>=1.3.14",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.0",
+    "pydantic>=2.13.4",
+    "openai>=1.0.0",
+    "loguru>=0.7.3",
+    # For dispatching tasks owned by krutrim_agent_celery (celery_client.py) via
+    # send_task's registered-name string — deliberately NOT a dependency on
+    # the krutrim-agent-celery package itself (no docker/deepagents pulled in here
+    # just to enqueue a job on the shared broker).
+    "celery[redis]>=5.6.3",
+    "krutrim-agent-management",
+    "krutrim-agent-sandbox",
+    "krutrim-agents",
+    "krutrim-agent-extensions",
+]
+
+[tool.uv.sources]
+krutrim-agent-management = { workspace = true }
+krutrim-agent-sandbox = { workspace = true }
+krutrim-agents = { workspace = true }
+krutrim-agent-extensions = { workspace = true }
+
+[project.scripts]
+krutrim-agent-backend = "krutrim_agent_backend:main"
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
