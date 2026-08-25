@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from krutrim_agent_backend.chat.catalog import CHAT_MODEL_CATALOG
+from krutrim_agent_backend.chat.catalog import CHAT_MODEL_CATALOG, ChatModelOption
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 @router.get("")
-def list_models() -> list[dict]:
+def list_models() -> list[ChatModelOption]:
     return [
         {
             "provider": option.provider,

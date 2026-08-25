@@ -66,3 +66,13 @@ def publish_job_stage_progress(
     published verbatim, so no route change is needed to support this."""
     payload = json.dumps({"stage": stage, "processed": processed, "total": total})
     pubsub.publish(JOB_STATUS_CHANNEL.format(job_id=job_id), payload)
+
+
+def publish_job_error(pubsub: PubSubBackend, job_id: str, error: str) -> None:
+    """A job's terminal failure state — without this, a failed
+    `process_rag_document` run is invisible to the SSE-only frontend (Celery's
+    own result backend isn't subscribed to from the browser). `stage: "error"`
+    lets `GET /api/status/jobs/{job_id}` subscribers distinguish this from an
+    in-progress `publish_job_stage_progress` event."""
+    payload = json.dumps({"stage": "error", "error": error})
+    pubsub.publish(JOB_STATUS_CHANNEL.format(job_id=job_id), payload)

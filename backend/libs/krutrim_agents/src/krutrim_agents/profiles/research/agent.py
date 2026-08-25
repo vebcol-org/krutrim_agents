@@ -118,7 +118,6 @@ def _normalize_model_result(result) -> ModelResponse:
 
 # 2. Graph nodes
 
-
 def _make_model_node(
     model: BaseChatModel,
     middlewares: Sequence[AgentMiddleware],

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from krutrim_agent_management.base import Storage
-from krutrim_agent_management.models import SharingScope
+from krutrim_agent_management.models import Chat, SessionInfo, SharingScope
 from pydantic import BaseModel
 
 from krutrim_agent_backend.chat.catalog import DEFAULT_CHAT_MODEL, is_known_chat_model
@@ -35,8 +35,13 @@ class CreateChatRequest(BaseModel):
     model: str | None = None
 
 
+class ChatDeletedResponse(BaseModel):
+    status: str
+    chat_id: str
+
+
 @router.post("")
-async def create_chat(body: CreateChatRequest, request: Request) -> dict:
+async def create_chat(body: CreateChatRequest, request: Request) -> Chat:
     storage = _storage(request)
     provider = body.provider or DEFAULT_CHAT_MODEL.provider
     model = body.model or DEFAULT_CHAT_MODEL.model
@@ -55,14 +60,14 @@ async def create_chat(body: CreateChatRequest, request: Request) -> dict:
 
 
 @router.get("")
-async def list_chats(request: Request, project_id: str | None = None) -> list[dict]:
+async def list_chats(request: Request, project_id: str | None = None) -> list[Chat]:
     return [
         chat.model_dump() for chat in await _storage(request).list_chats(project_id)
     ]
 
 
 @router.get("/{chat_id}")
-async def get_chat(chat_id: str, request: Request) -> dict:
+async def get_chat(chat_id: str, request: Request) -> Chat:
     try:
         return (await _storage(request).get_chat(chat_id)).model_dump()
     except KeyError as exc:
@@ -74,7 +79,7 @@ class UpdateChatRequest(BaseModel):
 
 
 @router.put("/{chat_id}")
-async def update_chat(chat_id: str, body: UpdateChatRequest, request: Request) -> dict:
+async def update_chat(chat_id: str, body: UpdateChatRequest, request: Request) -> Chat:
     try:
         updated = await _storage(request).update_chat(
             chat_id, display_name=body.display_name
@@ -85,7 +90,7 @@ async def update_chat(chat_id: str, body: UpdateChatRequest, request: Request) -
 
 
 @router.delete("/{chat_id}")
-async def delete_chat(chat_id: str, request: Request) -> dict:
+async def delete_chat(chat_id: str, request: Request) -> ChatDeletedResponse:
     try:
         await _storage(request).delete_chat(chat_id)
     except KeyError as exc:
@@ -99,7 +104,7 @@ class MoveChatRequest(BaseModel):
 
 
 @router.post("/{chat_id}/move")
-async def move_chat(chat_id: str, body: MoveChatRequest, request: Request) -> dict:
+async def move_chat(chat_id: str, body: MoveChatRequest, request: Request) -> Chat:
     try:
         updated = await _storage(request).move_chat(chat_id, project_id=body.project_id)
     except KeyError as exc:
@@ -120,7 +125,7 @@ class ChatSandboxPolicyUpdate(BaseModel):
 @router.put("/{chat_id}/sandbox-policy")
 async def update_chat_sandbox_policy(
     chat_id: str, body: ChatSandboxPolicyUpdate, request: Request
-) -> dict:
+) -> Chat:
     try:
         updated = await _storage(request).update_chat_sandbox_policy(
             chat_id,
@@ -139,7 +144,7 @@ async def update_chat_sandbox_policy(
 
 
 @router.post("/{chat_id}/sessions")
-async def create_chat_session(chat_id: str, request: Request) -> dict:
+async def create_chat_session(chat_id: str, request: Request) -> SessionInfo:
     storage = _storage(request)
     try:
         await storage.get_chat(chat_id)
@@ -150,7 +155,7 @@ async def create_chat_session(chat_id: str, request: Request) -> dict:
 
 
 @router.get("/{chat_id}/sessions")
-async def list_chat_sessions(chat_id: str, request: Request) -> list[dict]:
+async def list_chat_sessions(chat_id: str, request: Request) -> list[SessionInfo]:
     storage = _storage(request)
     try:
         await storage.get_chat(chat_id)

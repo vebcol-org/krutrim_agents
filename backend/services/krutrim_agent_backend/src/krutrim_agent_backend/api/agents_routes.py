@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from krutrim_agents_core.registry import all_profiles
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
+class AgentMeta(BaseModel):
+    key: str
+    display_name: str
+    description: str
+    roles: list[str]
+
+
 @router.get("")
-def list_agents(request: Request) -> list[dict]:
+def list_agents(request: Request) -> list[AgentMeta]:
     # Set by ExtensionMiddleware; `None` (the community default — no
     # AgentVisibilityPolicy registered) means "no restriction, show every
     # profile", matching today's behavior exactly. `getattr(..., None)`

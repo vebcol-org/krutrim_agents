@@ -13,11 +13,8 @@ from typing import Literal
 from pydantic import BaseModel
 
 SharingScope = Literal["isolated", "session-shared", "project-shared"]
-"""Who gets the `message_agent` tool: nobody / `linked_session_ids` peers / every
-`Agent`-owned session in the project. Not container identity — see `attached_to_session_id`."""
 
 OwnerType = Literal["agent", "chat"]
-"""Resolves `SessionInfo.owner_id` to either an `Agent.agent_id` or a `Chat.chat_id`."""
 
 
 class Project(BaseModel):

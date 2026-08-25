@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from krutrim_agent_management.base import Storage
-from krutrim_agent_management.models import Agent, SharingScope
+from krutrim_agent_management.models import Agent, SessionInfo, SharingScope
 from krutrim_agents_core.registry import get_profile
 from pydantic import BaseModel
 
@@ -50,10 +50,16 @@ class CreateAgentRequest(BaseModel):
     display_name: str
 
 
+class AgentDeletedResponse(BaseModel):
+    status: str
+    project_id: str
+    agent_id: str
+
+
 @router.post("")
 async def create_agent(
     project_id: str, body: CreateAgentRequest, request: Request
-) -> dict:
+) -> Agent:
     storage = _storage(request)
     try:
         get_profile(body.agent_key)
@@ -69,7 +75,7 @@ async def create_agent(
 
 
 @router.get("")
-async def list_agents(project_id: str, request: Request) -> list[dict]:
+async def list_agents(project_id: str, request: Request) -> list[Agent]:
     storage = _storage(request)
     try:
         await storage.get_project(project_id)
@@ -79,7 +85,7 @@ async def list_agents(project_id: str, request: Request) -> list[dict]:
 
 
 @router.get("/{agent_id}")
-async def get_agent(project_id: str, agent_id: str, request: Request) -> dict:
+async def get_agent(project_id: str, agent_id: str, request: Request) -> Agent:
     agent = await _get_agent_in_project(_storage(request), project_id, agent_id)
     return agent.model_dump()
 
@@ -91,7 +97,7 @@ class UpdateAgentRequest(BaseModel):
 @router.put("/{agent_id}")
 async def update_agent(
     project_id: str, agent_id: str, body: UpdateAgentRequest, request: Request
-) -> dict:
+) -> Agent:
     storage = _storage(request)
     await _get_agent_in_project(storage, project_id, agent_id)
     updated = await storage.update_agent(agent_id, display_name=body.display_name)
@@ -99,7 +105,9 @@ async def update_agent(
 
 
 @router.delete("/{agent_id}")
-async def delete_agent(project_id: str, agent_id: str, request: Request) -> dict:
+async def delete_agent(
+    project_id: str, agent_id: str, request: Request
+) -> AgentDeletedResponse:
     storage = _storage(request)
     await _get_agent_in_project(storage, project_id, agent_id)
     await storage.delete_agent(agent_id)
@@ -123,7 +131,7 @@ class AgentSandboxPolicyUpdate(BaseModel):
 @router.put("/{agent_id}/sandbox-policy")
 async def update_agent_sandbox_policy(
     project_id: str, agent_id: str, body: AgentSandboxPolicyUpdate, request: Request
-) -> dict:
+) -> Agent:
     storage = _storage(request)
     await _get_agent_in_project(storage, project_id, agent_id)
     updated = await storage.update_agent_sandbox_policy(
@@ -143,7 +151,7 @@ async def update_agent_sandbox_policy(
 @router.post("/{agent_id}/sessions")
 async def create_agent_session(
     project_id: str, agent_id: str, request: Request
-) -> dict:
+) -> SessionInfo:
     storage = _storage(request)
     await _get_agent_in_project(storage, project_id, agent_id)
     session = await storage.create_session("agent", agent_id)
@@ -153,7 +161,7 @@ async def create_agent_session(
 @router.get("/{agent_id}/sessions")
 async def list_agent_sessions(
     project_id: str, agent_id: str, request: Request
-) -> list[dict]:
+) -> list[SessionInfo]:
     storage = _storage(request)
     await _get_agent_in_project(storage, project_id, agent_id)
     return [

@@ -16,6 +16,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from deepagents.middleware.subagents import SubAgent
+from krutrim_agent_management.config import settings
+from krutrim_agent_rag.middleware import RagInjectionMiddleware
 from krutrim_agent_rag.tool import rag_tool
 from krutrim_agents_core.harness.prompts import load_prompt
 from krutrim_agents_core.profile import AgentProfile, RoleDefaults
@@ -182,11 +184,17 @@ def _make_system_prompt_fn(context: DeepAgentContext):
 
 
 def _graph_pattern(context: DeepAgentContext) -> CompiledStateGraph:
+    middleware = [*context.middleware]
+    if settings.rag_injection_enabled:
+        # Silent, automatic retrieval on every model call — additive to
+        # rag_tool (agent-initiated retrieval), not a replacement. Off by
+        # default; see AppSettings.rag_injection_enabled.
+        middleware.append(RagInjectionMiddleware())
     return create_research_agent(
         model=context.model,
         tools=context.tools,
         system_prompt_fn=_make_system_prompt_fn(context),
-        middleware=context.middleware,
+        middleware=middleware,
         subagents=context.subagents,
         skills=context.skills,
         memory=context.memory,

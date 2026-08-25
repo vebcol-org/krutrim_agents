@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from krutrim_agents_core.providers.registry import known_providers
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
@@ -20,12 +21,27 @@ RESTART_NOTE = (
 )
 
 
+class ProviderMetaResponse(BaseModel):
+    providers: list[str]
+
+
+class UpdateSettingsResponse(BaseModel):
+    """`settings` stays a free-form dict, not a typed `ModelSettings`
+    submodel — the actual object is always a provider-specific subclass
+    (e.g. `OpenRouterModelSettings`), and typing this as the generic base
+    would make FastAPI silently strip subclass-only fields from the
+    response, not just the docs."""
+
+    settings: dict[str, Any]
+    note: str
+
+
 def _store(request: Request):
     return request.app.state.provider_store
 
 
 @router.get("/meta")
-def list_meta() -> dict[str, Any]:
+def list_meta() -> ProviderMetaResponse:
     return {"providers": known_providers()}
 
 
@@ -53,7 +69,7 @@ def get_settings(agent_key: str, role: str, request: Request) -> dict[str, Any]:
 @router.put("/{agent_key}/{role}")
 def update_settings(
     agent_key: str, role: str, data: dict[str, Any], request: Request
-) -> dict[str, Any]:
+) -> UpdateSettingsResponse:
     try:
         updated = _store(request).set(agent_key, role, data)
     except KeyError as exc:
@@ -64,7 +80,7 @@ def update_settings(
 
 
 @router.post("/{agent_key}/{role}/reset")
-def reset_settings(agent_key: str, role: str, request: Request) -> dict[str, Any]:
+def reset_settings(agent_key: str, role: str, request: Request) -> UpdateSettingsResponse:
     store = _store(request)
     try:
         store.reset(agent_key, role)

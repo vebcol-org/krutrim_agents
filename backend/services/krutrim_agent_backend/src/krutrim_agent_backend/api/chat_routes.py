@@ -27,6 +27,7 @@ from krutrim_agents_core.providers.registry import build_chat_model
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
+from krutrim_agent_backend.api.schemas import ChatApiMessage
 from krutrim_agent_backend.chat.catalog import DEFAULT_CHAT_MODEL, is_known_chat_model
 from krutrim_agent_backend.chat.graph import build_chat_graph
 from krutrim_agent_backend.chat.messages import (
@@ -37,6 +38,12 @@ from krutrim_agent_backend.chat.messages import (
 from krutrim_agent_backend.chat.usage import accumulate_usage
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+class SendChatMessageResponse(BaseModel):
+    chat_id: str
+    session_id: str
+    message: ChatApiMessage
 
 
 class ChatMessageRequest(BaseModel):
@@ -98,7 +105,7 @@ async def _get_or_create_session(
 
 
 @router.post("")
-async def send_message(body: ChatMessageRequest, request: Request) -> dict:
+async def send_message(body: ChatMessageRequest, request: Request) -> SendChatMessageResponse:
     storage = _storage(request)
     chat = await _get_or_create_chat(storage, body)
     session = await _get_or_create_session(storage, chat.chat_id, body.session_id)

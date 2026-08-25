@@ -44,8 +44,19 @@ from krutrim_agents_core.cross_agent import find_eligible_peers, message_agent_t
 from krutrim_agents_core.registry import get_profile
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from loguru import logger
+from pydantic import BaseModel
 
 AGENT_RUN_PATH_PREFIX = "/agents"
+
+
+class AgentRunAgentInfo(BaseModel):
+    id: str
+    agent_key: str
+
+
+class AgentRunHealthResponse(BaseModel):
+    status: str
+    agent: AgentRunAgentInfo
 
 
 async def _get_agent(storage: Storage, agent_id: str) -> Agent:
@@ -165,7 +176,7 @@ def mount_agent_run_endpoint(app: FastAPI) -> None:
         )
 
     @app.get(f"{AGENT_RUN_PATH_PREFIX}/{{agent_id}}/health")
-    async def agent_run_health(agent_id: str, request: Request) -> dict:
+    async def agent_run_health(agent_id: str, request: Request) -> AgentRunHealthResponse:
         storage: Storage = request.app.state.storage
         agent = await _get_agent(storage, agent_id)
         _check_agent_key_visible(request, agent.agent_key)

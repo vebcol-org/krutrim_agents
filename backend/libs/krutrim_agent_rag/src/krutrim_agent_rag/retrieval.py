@@ -1,28 +1,25 @@
-"""Top-k retrieval over a session's FAISS index — the shared core behind both
+"""Top-k retrieval over a session's vector index — the shared core behind both
 `tool.rag_tool` (agent-initiated) and `middleware.RagInjectionMiddleware`
-(opt-in silent injection)."""
+(opt-in silent injection). The actual "how do we rank" logic lives in
+`retrieval_strategy.py` (vector-only vs. hybrid) — this module only resolves
+the session's index and dispatches to whichever strategy is configured."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
-from faisslite.exceptions import FaissliteError
 
 from krutrim_agent_rag.embeddings import index_exists, open_index
 from krutrim_agent_rag.embeddings_provider import default_embed
+from krutrim_agent_rag.models import RetrievedChunk
+from krutrim_agent_rag.retrieval_strategy_factory import create_retrieval_strategy
 
 if TYPE_CHECKING:
     from krutrim_agent_management.base import Storage
 
-
-@dataclass(frozen=True)
-class RetrievedChunk:
-    text: str
-    source: str
-    score: float
+__all__ = ["RetrievedChunk", "retrieve"]
 
 
 def retrieve(
@@ -41,21 +38,5 @@ def retrieve(
         return []
 
     index = open_index(embeddings_dir)
-    query_vector = embed_fn([query])
-
-    try:
-        hits = index.search(query_vector, k=k)
-    except FaissliteError:
-        return []
-
-    chunks: list[RetrievedChunk] = []
-    for hit in hits:
-        row = index.get(hit.id)
-        if row is None or row.get("text") is None:
-            continue
-        chunks.append(
-            RetrievedChunk(
-                text=row["text"], source=row.get("source") or "", score=hit.score
-            )
-        )
-    return chunks
+    strategy = create_retrieval_strategy()
+    return strategy.retrieve(index, query, k=k, embed_fn=embed_fn)

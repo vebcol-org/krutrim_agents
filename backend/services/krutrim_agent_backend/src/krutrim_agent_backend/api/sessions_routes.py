@@ -16,15 +16,59 @@ history endpoint the frontend uses to reload a past conversation.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from krutrim_agent_management.base import Storage
 from krutrim_agent_management.models import SessionInfo, SharingScope
 from pydantic import BaseModel
 
+from krutrim_agent_backend.api.schemas import ChatApiMessage
 from krutrim_agent_backend.celery_client import celery_client
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+_MAX_RAG_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB — binary uploads have no natural
+# bound the way a JSON text body does.
+
+
+class RagTextRequest(BaseModel):
+    text: str
+    title: str | None = None
+
+class SessionSandboxPolicyUpdate(BaseModel):
+    sharing: SharingScope | None = None
+    attached_to_session_id: str | None = None
+    linked_session_ids: list[str] | None = None
+
+class EmbedRequest(BaseModel):
+    source_paths: list[str] | None = None
+
+class UpdateSessionRequest(BaseModel):
+    display_name: str | None = None
+
+
+class SessionDeletedResponse(BaseModel):
+    status: str
+    session_id: str
+
+
+class SessionMessagesResponse(BaseModel):
+    messages: list[ChatApiMessage]
+
+
+class EmbedResponse(BaseModel):
+    status: str
+    task_id: str
+    job_id: str
+    file_count: int
+
+
+class RagTextResponse(BaseModel):
+    status: str
+    task_id: str
+    job_id: str
+    document_id: str
 
 
 def _storage(request: Request) -> Storage:
@@ -52,18 +96,16 @@ async def _list_project_sessions(
 
 
 @router.get("/{session_id}")
-async def get_session(session_id: str, request: Request) -> dict:
+async def get_session(session_id: str, request: Request) -> SessionInfo:
     return (await _get_session(_storage(request), session_id)).model_dump()
 
 
-class UpdateSessionRequest(BaseModel):
-    display_name: str | None = None
 
 
 @router.put("/{session_id}")
 async def update_session(
     session_id: str, body: UpdateSessionRequest, request: Request
-) -> dict:
+) -> SessionInfo:
     storage = _storage(request)
     await _get_session(storage, session_id)
     updated = await storage.update_session(session_id, display_name=body.display_name)
@@ -71,7 +113,7 @@ async def update_session(
 
 
 @router.delete("/{session_id}")
-async def delete_session(session_id: str, request: Request) -> dict:
+async def delete_session(session_id: str, request: Request) -> SessionDeletedResponse:
     storage = _storage(request)
     await _get_session(storage, session_id)
     await storage.delete_session(session_id)
@@ -79,28 +121,19 @@ async def delete_session(session_id: str, request: Request) -> dict:
 
 
 @router.get("/{session_id}/messages")
-async def get_session_messages(session_id: str, request: Request) -> dict:
+async def get_session_messages(session_id: str, request: Request) -> SessionMessagesResponse:
     storage = _storage(request)
     await _get_session(storage, session_id)
     checkpoint = await storage.read_checkpoint(session_id)
     return {"messages": (checkpoint or {}).get("messages", [])}
 
 
-class SessionSandboxPolicyUpdate(BaseModel):
-    """Unset (`None`) fields are left unchanged. There's currently no way to
-    clear an existing `attached_to_session_id` back to "not attached" through
-    this route — a real gap, not silently worked around; see
-    `Storage.update_session_sandbox_policy`'s own docstring."""
-
-    sharing: SharingScope | None = None
-    attached_to_session_id: str | None = None
-    linked_session_ids: list[str] | None = None
 
 
 @router.put("/{session_id}/sandbox-policy")
 async def update_session_sandbox_policy(
     session_id: str, body: SessionSandboxPolicyUpdate, request: Request
-) -> dict:
+) -> SessionInfo:
     storage = _storage(request)
     current = await _get_session(storage, session_id)
 
@@ -144,19 +177,13 @@ async def update_session_sandbox_policy(
     return updated.model_dump()
 
 
-class EmbedRequest(BaseModel):
-    source_paths: list[str] | None = None
-    """Workspace-mirror-relative paths to embed (see `Storage.read_workspace_files`).
-    If omitted, every file currently in the session's persisted workspace
-    mirror is used — note this is the *mirror*, synced on teardown; if the
-    session's container is still running with unsynced changes, those
-    won't be picked up until it's torn down or explicitly re-synced."""
+
 
 
 @router.post("/{session_id}/embed")
 async def trigger_embedding(
     session_id: str, body: EmbedRequest, request: Request
-) -> dict:
+) -> EmbedResponse:
     storage = _storage(request)
     await _get_session(storage, session_id)
 
@@ -180,21 +207,13 @@ async def trigger_embedding(
     }
 
 
-class RagTextRequest(BaseModel):
-    text: str
-    """Raw text to ingest — pasted directly, or a `.txt` file's contents read
-    client-side (v1 RAG ingestion is text-only; there's no separate binary
-    file-upload endpoint). Empty/whitespace-only text is rejected."""
 
-    title: str | None = None
-    """Human-readable label for citations (e.g. the original filename).
-    Defaults to the document id if omitted."""
 
 
 @router.post("/{session_id}/rag/text")
 async def submit_rag_text(
     session_id: str, body: RagTextRequest, request: Request
-) -> dict:
+) -> RagTextResponse:
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="text must not be empty.")
 
@@ -215,6 +234,51 @@ async def submit_rag_text(
     # Deterministic and per-document (unlike /embed's single per-session job
     # id) — a session can ingest multiple RAG documents over time, each with
     # its own progress stream at GET /api/status/jobs/{job_id}.
+    job_id = f"{session_id}:rag:{document_id}"
+    return {
+        "status": "queued",
+        "task_id": async_result.id,
+        "job_id": job_id,
+        "document_id": document_id,
+    }
+
+
+@router.post("/{session_id}/rag/file")
+async def submit_rag_file(
+    session_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+) -> RagTextResponse:
+    """Real (binary-capable) document upload — the counterpart to
+    `/rag/text` for files that aren't pasted text: PDF, DOCX, and anything
+    else `krutrim_agent_doc`'s parser registry supports. The file's
+    extension is preserved (unlike `/rag/text`'s hardcoded `.txt`) so
+    `process_rag_document`'s Celery task can dispatch to the right parser
+    by suffix. Dispatches the same task and job-id scheme as `/rag/text` —
+    ingestion is unified once content is on disk."""
+    storage = _storage(request)
+    await _get_session(storage, session_id)
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(content) > _MAX_RAG_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {_MAX_RAG_UPLOAD_BYTES // (1024 * 1024)}MB upload limit.",
+        )
+
+    document_id = uuid.uuid4().hex
+    suffix = Path(file.filename or "").suffix or ".txt"
+    source_path = f"_rag_uploads/{document_id}{suffix}"
+    await storage.sync_workspace_from_container(session_id, [(source_path, content)])
+
+    title = title or file.filename or document_id
+    async_result = celery_client.send_task(
+        "krutrim_agent_celery.process_rag_document",
+        args=[session_id, document_id, source_path, title],
+    )
     job_id = f"{session_id}:rag:{document_id}"
     return {
         "status": "queued",

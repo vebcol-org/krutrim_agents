@@ -13,12 +13,20 @@ from __future__ import annotations
 from fastapi import APIRouter
 from krutrim_agent_extensions.registry import all_hooks
 from krutrim_agent_management.config import settings
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 
+class ExtensionStatusResponse(BaseModel):
+    edition: str
+    hooks: dict[str, str]
+    storage_backend: str
+    sandbox_runtime: str
+
+
 @router.get("/extensions")
-def get_extension_status() -> dict:
+def get_extension_status() -> ExtensionStatusResponse:
     hooks = all_hooks()
     return {
         "edition": settings.edition,

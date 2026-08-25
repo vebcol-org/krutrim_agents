@@ -14,6 +14,10 @@ not by importing this module — so the FastAPI process never pulls in
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 from krutrim_agent_celery_core.factory import build_celery_app
 
 from krutrim_agent_celery.config import celery_settings
@@ -27,11 +31,6 @@ celery_app = build_celery_app(
         },
     },
 )
-
-from krutrim_agent_management.config import settings as _app_settings
-from krutrim_agent_utils import dev_cache
-
-dev_cache.install(_app_settings.storage_root / "dev_api_cache")  # na-git
 
 # Imported for its side effect (registering `@celery_app.task`-decorated
 # functions against this app instance) — not referenced directly here. Must

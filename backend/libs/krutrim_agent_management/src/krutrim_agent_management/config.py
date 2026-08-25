@@ -26,10 +26,6 @@ BACKEND_ROOT = _find_backend_root(Path(__file__).resolve())
 load_dotenv(BACKEND_ROOT / ".env")
 
 
-def _env_flag(name: str, default: str = "true") -> bool:
-    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _get_redis_url() -> str:
     """Builds a Redis URL from env vars; REDIS_URL overrides everything else if set."""
     direct_url = os.getenv("REDIS_URL")
@@ -56,9 +52,7 @@ def _get_redis_url() -> str:
 
 
 class AppSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="KRUTRIM_AGENT_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     host: str = "0.0.0.0"
     port: int = 8000
@@ -76,24 +70,31 @@ class AppSettings(BaseSettings):
     storage_backend: str = "local"
     storage_backend_sources: list[str] = ["krutrim_agent_management.local"]
 
-    # VectorStore backend registry — "faisslite" is the only implementation today
+    # VectorStore backend registry — "faisslite" (default) or "qdrant"
     vector_store_backend: str = "faisslite"
-    vector_store_backend_sources: list[str] = ["krutrim_agent_rag.embeddings"]
+    vector_store_backend_sources: list[str] = [
+        "krutrim_agent_rag.embeddings",
+        "krutrim_agent_rag.qdrant_store",
+    ]
 
-    # Web search tool provider — "duckduckgo" needs no API key; "tavily" needs
+    # Qdrant connection settings — only read when vector_store_backend="qdrant"
+    qdrant_url: str | None = None
+    qdrant_api_key: str | None = None
+    qdrant_prefer_grpc: bool = False
+    qdrant_https: bool = False
+    # ":memory:" for tests/local dev without a running Qdrant server; overrides qdrant_url when set
+    qdrant_location: str | None = None
+
     # TAVILY_API_KEY and generally returns higher-quality results.
     web_search_provider: str = "tavily"
 
-    # OpenRouter-hosted embedding model used for RAG ingestion (krutrim_agent_rag,
-    # krutrim_agent_celery's precompute_embeddings/process_rag_document tasks).
-    # Requires OPENROUTER_API_KEY. Chosen for low per-token cost.
+    # Rag settings
     rag_embedding_model: str = "qwen/qwen3-embedding-8b"
+    retrieval_strategy: str = "vector_only"
+    retrieval_strategy_sources: list[str] = ["krutrim_agent_rag.retrieval_strategy"]
+    rag_injection_enabled: bool = False
 
-    cors_origins: list[str] = [
-        "http://localhost:4200",
-        "http://localhost:5173",
-        "http://localhost:4300",
-    ]
+    cors_origins: list[str] = []
 
     # celery broker/result-backend
     redis_url: str = Field(default_factory=lambda: _get_redis_url())
@@ -110,8 +111,7 @@ class AppSettings(BaseSettings):
     # dotted modules overriding the no-op RequestAuthenticator/AgentVisibilityPolicy/AuditSink
     extension_sources: list[str] = []
 
-    # falls back to unprefixed DEV_MODE if KRUTRIM_AGENT_DEV_MODE isn't set
-    dev_mode: bool = Field(default_factory=lambda: _env_flag("DEV_MODE"))
+    dev_mode: bool = False
 
     # Langfuse tracing, only active when dev_mode is on; unprefixed to match the SDK's own env vars
     langfuse_public_key: str | None = Field(

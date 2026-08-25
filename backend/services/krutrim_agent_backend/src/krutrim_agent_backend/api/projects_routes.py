@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from krutrim_agent_management.base import Storage
-from krutrim_agent_management.models import SharingScope
+from krutrim_agent_management.models import Project, SharingScope
 from pydantic import BaseModel
 
 from krutrim_agent_backend.chat.catalog import DEFAULT_CHAT_MODEL
@@ -35,8 +35,13 @@ class CreateProjectRequest(BaseModel):
     project_information: str = ""
 
 
+class ProjectDeletedResponse(BaseModel):
+    status: str
+    project_id: str
+
+
 @router.post("")
-async def create_project(body: CreateProjectRequest, request: Request) -> dict:
+async def create_project(body: CreateProjectRequest, request: Request) -> Project:
     storage = _storage(request)
     project = await storage.create_project(body.project_title, body.project_information)
     await storage.create_chat(
@@ -49,12 +54,12 @@ async def create_project(body: CreateProjectRequest, request: Request) -> dict:
 
 
 @router.get("")
-async def list_projects(request: Request) -> list[dict]:
+async def list_projects(request: Request) -> list[Project]:
     return [project.model_dump() for project in await _storage(request).list_projects()]
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: str, request: Request) -> dict:
+async def get_project(project_id: str, request: Request) -> Project:
     try:
         return (await _storage(request).get_project(project_id)).model_dump()
     except KeyError as exc:
@@ -71,7 +76,7 @@ class UpdateProjectRequest(BaseModel):
 @router.put("/{project_id}")
 async def update_project(
     project_id: str, body: UpdateProjectRequest, request: Request
-) -> dict:
+) -> Project:
     try:
         updated = await _storage(request).update_project(
             project_id,
@@ -84,7 +89,7 @@ async def update_project(
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: str, request: Request) -> dict:
+async def delete_project(project_id: str, request: Request) -> ProjectDeletedResponse:
     try:
         await _storage(request).delete_project(project_id)
     except KeyError as exc:
@@ -104,7 +109,7 @@ class ProjectSandboxPolicyUpdate(BaseModel):
 @router.put("/{project_id}/sandbox-policy")
 async def update_project_sandbox_policy(
     project_id: str, body: ProjectSandboxPolicyUpdate, request: Request
-) -> dict:
+) -> Project:
     try:
         updated = await _storage(request).update_project_sandbox_policy(
             project_id,
