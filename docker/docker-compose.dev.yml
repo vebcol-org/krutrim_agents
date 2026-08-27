@@ -1,0 +1,185 @@
+# LOCAL DEV stack — hot reload, fast iterative builds.
+#
+# Differences from the production docker-compose.yml:
+#   * every image is built from its Dockerfile's `dev` target (keeps uv/pnpm
+#     + the dev dependency group in the image)
+#   * application source is BIND-MOUNTED into each container, so editing a
+#     file on the host is picked up live — no `docker compose build` for a
+#     code change. Only a dependency-manifest change (pyproject.toml,
+#     uv.lock, package.json, pnpm-lock.yaml) needs a rebuild.
+#   * a file watcher/reloader runs INSIDE the backend and frontend containers:
+#       backend       → uvicorn --reload                 (watchfiles)
+#       frontend      → nx serve / Vite dev server        (HMR)
+#     celery-worker does NOT auto-reload (a worker restart re-imports
+#     torch/docling — too expensive per save); bounce it by hand after a
+#     task-code change:
+#       docker compose -f docker/docker-compose.dev.yml restart celery-worker
+#   * Redis auth is off, nothing is `restart: unless-stopped`, and the project
+#     name defaults to `krutrim-agent-dev` so these containers/volumes never
+#     collide with the production stack's.
+#
+# TORCH_BACKEND (cpu | gpu) and the vector store (faisslite | qdrant, via
+# KRUTRIM_AGENT_VECTOR_STORE_BACKEND + COMPOSE_PROFILES=qdrant +
+# KRUTRIM_AGENT_QDRANT_URL) work exactly as in the prod file — set them in
+# .env.dev. See ../.env.example for the KRUTRIM_AGENT_ prefix rule.
+#
+# Source is BIND-MOUNTED (see each service's `volumes:`), and the reloader
+# runs INSIDE the container — so a host edit is the same inode in the
+# container and the in-container watcher picks it up live. Do NOT use
+# `docker compose watch` here: that COPIES files in (not a bind mount) and
+# rebuilds the whole image on any manifest touch. Plain `up` is the loop.
+# Only a dependency-manifest change (pyproject.toml, uv.lock, package.json,
+# pnpm-lock.yaml) needs a rebuild — re-run with `--build`.
+#
+# Run from the repo root:
+#   cp .env.example .env.dev     # once — .env.dev is git-ignored (optional; the
+#                                # stack still starts without it, minus API keys)
+#   docker compose -f docker/docker-compose.dev.yml up --build   # first run
+#   docker compose -f docker/docker-compose.dev.yml up           # thereafter
+
+name: ${COMPOSE_PROJECT_NAME:-krutrim-agent-dev}
+
+services:
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - '6379:6379'
+    # Dev: no auth (see .env.dev). Same array-form reasoning as the prod file.
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD:-}']
+    volumes:
+      - krutrim-redis-data-dev:/data
+    init: true
+    restart: 'no'
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["qdrant"]
+    volumes:
+      - krutrim-qdrant-data-dev:/qdrant/storage
+    ports:
+      - "${QDRANT_HTTP_PORT:-6343}:6333"
+      - "${QDRANT_GRPC_PORT:-6344}:6334"
+    init: true
+    restart: 'no'
+
+  backend:
+    image: krutrim_agent-backend:dev
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend.Dockerfile
+      target: dev
+      args:
+        TORCH_BACKEND: ${TORCH_BACKEND:-cpu}
+    env_file:
+      - path: ../.env.dev
+        required: false
+    environment:
+      KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
+      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      KRUTRIM_AGENT_DEV_MODE: 'true'
+      OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
+      TAVILY_SEARCH_API_BASE: ${TAVILY_SEARCH_API_BASE:+http://host.docker.internal:4100/}
+      LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
+      # Set true on macOS/Windows if --reload stops noticing edits (bind-mount
+      # inotify events don't cross the Docker VM boundary there).
+      WATCHFILES_FORCE_POLLING: ${WATCHFILES_FORCE_POLLING:-false}
+    ports:
+      - '8000:8000'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The hot-reload mount: host source over /app. The installed venv lives
+      # at /opt/venv (UV_PROJECT_ENVIRONMENT), OUTSIDE /app, so it is not
+      # shadowed by this and survives across edits.
+      - ../backend:/app
+      - ${HOME}/.krutrim_agent:/data
+    depends_on:
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+        required: false
+    restart: 'no'
+
+  celery-worker:
+    image: krutrim_agent-celery:dev
+    build:
+      context: ../backend
+      dockerfile: ../docker/celery.Dockerfile
+      target: dev
+      args:
+        TORCH_BACKEND: ${TORCH_BACKEND:-cpu}
+    env_file:
+      - path: ../.env.dev
+        required: false
+    environment:
+      KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
+      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      KRUTRIM_AGENT_DEV_MODE: 'true'
+      OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
+      LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../backend:/app
+      - ${HOME}/.krutrim_agent:/data
+    depends_on:
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+        required: false
+    # No auto-reload here — a worker restart re-imports torch/docling, too
+    # expensive to do on every save. Source is still bind-mounted (no image
+    # rebuild), so after changing task code just bounce it:
+    #   docker compose -f docker/docker-compose.dev.yml restart celery-worker
+    # See celery.Dockerfile's dev stage.
+    restart: 'no'
+
+  # Flower — Celery web dashboard (task history, worker state, queue depth).
+  # DEV ONLY: there is no `flower` service in docker-compose.yml. Uses the
+  # upstream image and just talks to the broker — no dependency added to the
+  # celery image, nothing to rebuild. Same broker/DB the worker uses.
+  #   http://localhost:5555   (no auth — bound to your laptop only)
+  flower:
+    image: mher/flower:2.0
+    command: ['celery', 'flower', '--port=5556']
+    environment:
+      CELERY_BROKER_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
+    ports:
+      - '5556:5556'
+    depends_on:
+      redis:
+        condition: service_started
+    restart: 'no'
+
+  frontend:
+    image: krutrim_agent-frontend:dev
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      target: dev
+    environment:
+      # Read live by `vite dev` — not baked in for the dev target.
+      VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:8000}
+      # Set true on macOS/Windows if HMR stops noticing edits.
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-false}
+      WATCHPACK_POLLING: ${WATCHPACK_POLLING:-false}
+    ports:
+      - '4200:4200'
+    volumes:
+      - ..:/app
+      # Keep the image's installed deps — the bind mount above would
+      # otherwise shadow them with the host's (wrong-platform) node_modules.
+      - krutrim-web-node-modules-dev:/app/node_modules
+      - krutrim-web-nx-cache-dev:/app/.nx
+    depends_on:
+      - backend
+    restart: 'no'
+
+volumes:
+  krutrim-redis-data-dev:
+  krutrim-qdrant-data-dev:
+  krutrim-web-node-modules-dev:
+  krutrim-web-nx-cache-dev:

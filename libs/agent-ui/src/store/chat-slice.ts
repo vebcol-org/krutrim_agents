@@ -1,7 +1,7 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { ChatApiMessage, SessionInfo } from '@krutrim_agent/shared-types';
 
-import { fetchChatSessions, fetchSessionMessages, sendChatMessage } from '../api';
+import { createChat, createChatSession, fetchChatSessions, fetchSessionMessages, sendChatMessage } from '../api';
 import { ApiError } from '../utils/http-client';
 import type { RootState } from './store';
 
@@ -143,6 +143,47 @@ export const postMessage = createAsyncThunk<PostMessageResult, string, { state: 
   },
 );
 
+interface EnsureSessionResult {
+  chatId: string;
+  sessionId: string;
+  /** Present only when this call had to create the session (and possibly the
+   * chat) — lets the reducer fold the new session into `sessions`. */
+  session?: SessionInfo;
+}
+
+/**
+ * Guarantees the active chat has a real `session_id`, creating one (and, if
+ * nothing is selected yet, the chat itself) on demand. Used by the composer
+ * before a file attachment: RAG ingestion is a `POST /api/sessions/{id}/rag/file`
+ * call, so it can't run against the backend's usual lazy-on-first-message
+ * session. A no-op when a session already exists.
+ *
+ * Like `postMessage`, when this implicitly creates a chat the sidebar tree
+ * (`workspace-slice.ts`) won't know about it until its next `fetchWorkspace()`
+ * — the two slices stay decoupled; a tolerable, already-documented gap.
+ */
+export const ensureChatSession = createAsyncThunk<
+  EnsureSessionResult,
+  void,
+  { state: RootState; rejectValue: string }
+>('chat/ensureChatSession', async (_arg, { getState, rejectWithValue }) => {
+  const { backendUrl, activeChatId, activeSessionId } = getState().chat;
+  if (activeSessionId && activeChatId) {
+    return { chatId: activeChatId, sessionId: activeSessionId };
+  }
+  try {
+    let chatId = activeChatId;
+    if (!chatId) {
+      const chat = await createChat(backendUrl, { display_name: 'New chat', project_id: null });
+      chatId = chat.chat_id;
+    }
+    const session = await createChatSession(backendUrl, chatId);
+    return { chatId, sessionId: session.session_id, session };
+  } catch (err) {
+    return rejectWithValue(describeError(err, 'Failed to start a session.'));
+  }
+});
+
 const chatSlice = createSlice({
   name: 'chat',
   initialState,
@@ -211,6 +252,17 @@ const chatSlice = createSlice({
       .addCase(postMessage.rejected, (state, action) => {
         state.isSending = false;
         state.error = action.payload ?? action.error.message ?? 'Failed to send message.';
+      })
+
+      .addCase(ensureChatSession.fulfilled, (state, action) => {
+        state.activeChatId = action.payload.chatId;
+        state.activeSessionId = action.payload.sessionId;
+        if (action.payload.session && !state.sessions.some((s) => s.session_id === action.payload.sessionId)) {
+          state.sessions = sortByCreatedAtAsc([...state.sessions, action.payload.session]);
+        }
+      })
+      .addCase(ensureChatSession.rejected, (state, action) => {
+        state.error = action.payload ?? action.error.message ?? 'Failed to start a session.';
       });
   },
 });

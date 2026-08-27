@@ -21,6 +21,19 @@ krutrim-agent-celery-core = { workspace = true }
 krutrim-agent-rag = { workspace = true }
 krutrim-agent-doc = { workspace = true }
 
+# `uv sync --package krutrim-agent-celery --extra cpu` only applies `--extra`
+# to extras declared on the package being synced — so this forwards to
+# krutrim_agent_doc's actual cpu/gpu extra (torch/torchvision + index config)
+# and krutrim_agent_rag's gpu extra (faiss-gpu-cu12; no cpu counterpart since
+# faiss-cpu is already the unconditional default) rather than re-declaring
+# either here. See docker/celery.Dockerfile's BUILD arg.
+[project.optional-dependencies]
+cpu = ["krutrim-agent-doc[cpu]"]
+gpu = ["krutrim-agent-doc[gpu]", "krutrim-agent-rag[gpu]"]
+
+[project.scripts]
+krutrim-agent-worker = "krutrim_agent_celery:main"
+
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]
 build-backend = "uv_build"

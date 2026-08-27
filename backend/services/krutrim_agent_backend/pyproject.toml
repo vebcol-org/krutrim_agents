@@ -32,6 +32,13 @@ krutrim-agent-sandbox = { workspace = true }
 krutrim-agents = { workspace = true }
 krutrim-agent-extensions = { workspace = true }
 
+# Forwards to krutrim_agents -> krutrim_agent_rag's gpu extra (faiss-gpu-cu12).
+# No "cpu" extra here — faiss-cpu is already the unconditional default, so
+# there's nothing to switch for that case. See docker/backend.Dockerfile's
+# BUILD arg.
+[project.optional-dependencies]
+gpu = ["krutrim-agents[gpu]"]
+
 [project.scripts]
 krutrim-agent-backend = "krutrim_agent_backend:main"
 

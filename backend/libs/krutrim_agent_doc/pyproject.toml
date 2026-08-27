@@ -8,6 +8,26 @@ dependencies = [
     "docling>=2.0",
 ]
 
+# torch/torchvision are only transitive (via docling -> docling-ibm-models),
+# but declared explicitly here so we can pin which package index they
+# resolve from. Default PyPI wheels for torch bundle the full CUDA runtime
+# (~5GB of nvidia-* libs) even when nothing on this box has a GPU — pick one
+# extra at sync time: `uv sync --package krutrim-agent-doc --extra cpu` (or
+# --extra gpu on a CUDA host). See docker/celery.Dockerfile's BUILD arg.
+[project.optional-dependencies]
+cpu = ["torch", "torchvision"]
+gpu = ["torch", "torchvision"]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-gpu", extra = "gpu" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-gpu", extra = "gpu" },
+]
+
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]
 build-backend = "uv_build"

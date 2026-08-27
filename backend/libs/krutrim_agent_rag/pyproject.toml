@@ -18,6 +18,13 @@ dependencies = [
 krutrim-agent-management = { workspace = true }
 krutrim-agent-utils = { workspace = true }
 
+# faiss-cpu is already an unconditional dependency of faisslite itself, so
+# there's nothing to switch for the cpu case — only gpu needs forwarding, to
+# pull in faisslite's own faiss-gpu-cu12 extra. See docker/backend.Dockerfile
+# and docker/celery.Dockerfile's BUILD arg.
+[project.optional-dependencies]
+gpu = ["faisslite[gpu]"]
+
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]
 build-backend = "uv_build"

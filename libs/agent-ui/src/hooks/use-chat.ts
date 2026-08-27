@@ -1,7 +1,15 @@
 import { useEffect } from 'react';
 import type { ChatApiMessage, SessionInfo } from '@krutrim_agent/shared-types';
 
-import { openChat, openSession, postMessage, setBackendUrl, startNewChat, startNewSession } from '../store/chat-slice';
+import {
+  ensureChatSession,
+  openChat,
+  openSession,
+  postMessage,
+  setBackendUrl,
+  startNewChat,
+  startNewSession,
+} from '../store/chat-slice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 
 /**
@@ -30,6 +38,10 @@ export interface UseChatResult {
   selectChat: (chatId: string) => void;
   selectSession: (sessionId: string) => void;
   sendMessage: (text: string) => void;
+  /** Resolves to a guaranteed `session_id` for the active chat, creating the
+   * session (and the chat, if none is selected) on demand — see
+   * `ensureChatSession`. Returns `null` if creation failed. */
+  ensureSession: () => Promise<string | null>;
 }
 
 export function useChat({ backendUrl }: UseChatOptions): UseChatResult {
@@ -61,6 +73,15 @@ export function useChat({ backendUrl }: UseChatOptions): UseChatResult {
       const trimmed = text.trim();
       if (!trimmed || state.isSending) return;
       dispatch(postMessage(trimmed));
+    },
+    ensureSession: async () => {
+      if (state.activeSessionId) return state.activeSessionId;
+      try {
+        const result = await dispatch(ensureChatSession()).unwrap();
+        return result.sessionId;
+      } catch {
+        return null;
+      }
     },
   };
 }

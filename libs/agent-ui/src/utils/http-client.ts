@@ -99,6 +99,17 @@ export function apiPut<T>(url: string, schema: z.ZodType<T>, body: unknown): Pro
 }
 
 /**
+ * Like `apiPost`, but sends a `multipart/form-data` body (for real file
+ * uploads — e.g. `POST /api/sessions/{id}/rag/file`) instead of JSON. No
+ * `Content-Type` header is set explicitly: the browser derives one with the
+ * correct multipart boundary from the `FormData` instance itself: setting
+ * it manually would omit that boundary and break parsing.
+ */
+export function apiPostForm<T>(url: string, schema: z.ZodType<T>, formData: FormData): Promise<T> {
+  return apiRequest(url, schema, { method: 'POST', body: formData });
+}
+
+/**
  * `DELETE` doesn't validate a response schema — unlike every other verb here,
  * a delete route's response body (`{"status": "deleted", ...}`) varies per
  * resource and callers only ever care whether it succeeded, not its exact

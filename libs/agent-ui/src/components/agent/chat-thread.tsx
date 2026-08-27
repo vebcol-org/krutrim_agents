@@ -20,6 +20,9 @@ export interface ChatThreadProps {
   onNewSession: () => void;
   onSend: (text: string) => void;
   onOpenSandboxSettings: () => void;
+  /** Creates the chat's session on demand so a file can be attached before
+   * the first message exists — see `useChat().ensureSession`. */
+  onEnsureSession: () => Promise<string | null>;
 }
 
 export function ChatThread({
@@ -35,6 +38,7 @@ export function ChatThread({
   onNewSession,
   onSend,
   onOpenSandboxSettings,
+  onEnsureSession,
 }: ChatThreadProps) {
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -64,7 +68,13 @@ export function ChatThread({
 
       <MessageList messages={messages} isLoading={isLoading} isSending={isSending} error={error} />
 
-      <Composer disabled={isSending} onSend={onSend} />
+      <Composer
+        disabled={isSending}
+        onSend={onSend}
+        backendUrl={backendUrl}
+        sessionId={activeSessionId}
+        ensureSession={onEnsureSession}
+      />
     </main>
   );
 }

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from krutrim_agents_core.providers.base import ProviderConfigError
-from krutrim_agents_core.providers.ollama import OllamaModelSettings
 from krutrim_agents_core.providers.openrouter import OpenRouterModelSettings
 from krutrim_agents_core.providers.registry import (
     build_chat_model,
@@ -13,7 +12,7 @@ from krutrim_agents_core.providers.store import ProviderStore
 
 
 def test_known_providers():
-    assert known_providers() == ["ollama", "openrouter"]
+    assert known_providers() == ["openrouter"]
 
 
 def test_parse_openrouter_settings():
@@ -24,10 +23,6 @@ def test_parse_openrouter_settings():
     assert settings.base_url == "https://openrouter.ai/api/v1"
 
 
-def test_parse_ollama_settings():
-    settings = parse_model_settings({"provider": "ollama", "model": "llama3.1"})
-    assert isinstance(settings, OllamaModelSettings)
-    assert settings.base_url == "http://localhost:11434"
 
 
 def test_parse_unknown_provider_raises():
@@ -56,9 +51,7 @@ def test_build_chat_model_openrouter_succeeds_with_key(monkeypatch):
     assert model.temperature == 0.5
 
 
-def test_build_chat_model_ollama_needs_no_key():
-    model = build_chat_model({"provider": "ollama", "model": "llama3.1"})
-    assert model.model == "llama3.1"
+
 
 
 def test_provider_store_seeds_from_registry(tmp_path):
@@ -78,7 +71,7 @@ def test_provider_store_set_and_get(tmp_path):
     store.set(
         "trading",
         "critic",
-        {"provider": "ollama", "model": "mistral", "temperature": 0.9},
+        {"provider": "openrouter", "model": "mistral", "temperature": 0.9},
     )
     updated = store.get("trading", "critic")
     assert updated.model == "mistral"
@@ -88,28 +81,28 @@ def test_provider_store_set_and_get(tmp_path):
 def test_provider_store_set_unknown_agent_raises(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
     with pytest.raises(KeyError, match="Unknown agent"):
-        store.set("not-an-agent", "main", {"provider": "ollama", "model": "x"})
+        store.set("not-an-agent", "main", {"provider": "openrouter", "model": "x"})
 
 
 def test_provider_store_set_unknown_role_raises(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
     with pytest.raises(ValueError, match="Unknown role"):
         store.set(
-            "sales", "critic", {"provider": "ollama", "model": "x"}
+            "sales", "critic", {"provider": "openrouter", "model": "x"}
         )  # sales has no critic
 
 
 def test_provider_store_reset(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
     original = store.get("trading", "writer")
-    store.set("trading", "writer", {"provider": "ollama", "model": "mistral"})
+    store.set("trading", "writer", {"provider": "openrouter", "model": "mistral"})
     store.reset("trading", "writer")
     assert store.get("trading", "writer") == original
 
 
 def test_provider_store_isolated_per_agent(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
-    store.set("trading", "main", {"provider": "ollama", "model": "trading-model"})
+    store.set("trading", "main", {"provider": "openrouter", "model": "trading-model"})
     # research's "main" role must be untouched by trading's change
     assert store.get("research", "main").model != "trading-model"
 
@@ -117,7 +110,7 @@ def test_provider_store_isolated_per_agent(tmp_path):
 def test_provider_store_new_agent_seeded_without_overwriting_existing(tmp_path):
     path = tmp_path / "settings.json"
     store = ProviderStore(path)
-    store.set("trading", "main", {"provider": "ollama", "model": "customized"})
+    store.set("trading", "main", {"provider": "openrouter", "model": "customized"})
     # Re-opening the store (simulates a backend restart) must not clobber the customization.
     store2 = ProviderStore(path)
     assert store2.get("trading", "main").model == "customized"

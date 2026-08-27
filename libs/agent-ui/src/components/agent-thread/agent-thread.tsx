@@ -1,17 +1,17 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Message } from '@ag-ui/client';
 import type { Agent } from '@krutrim_agent/shared-types';
 import { Badge, Button } from '@krutrim_agent/ui';
-import { BookOpen, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 
+import { useBlurStatusTitle } from '../../hooks/use-blur-status-title';
 import { SandboxStatus } from '../sandbox-status';
 import { Composer } from '../agent/composer';
-import { RagUploadSheet } from '../agent/rag-upload-sheet';
 import { AgentMessageList } from './agent-message-list';
 
-/** Profiles with a `rag_tool` wired in — gates the "Add research information"
- * trigger. Update this if RAG ingestion becomes available to other profiles. */
-const RAG_ENABLED_AGENT_KEYS = new Set(['research']);
+/** How long the "✓ Embedding complete" tab-title status stays up after the
+ * last upload finishes, before reverting to the plain session title. */
+const UPLOAD_COMPLETE_TITLE_MS = 10_000;
 
 export interface AgentThreadProps {
   backendUrl: string;
@@ -40,8 +40,23 @@ export function AgentThread({
   error,
   sendMessage,
 }: AgentThreadProps) {
-  const [ragSheetOpen, setRagSheetOpen] = useState(false);
-  const ragEnabled = RAG_ENABLED_AGENT_KEYS.has(agent.agent_key);
+  const [uploading, setUploading] = useState(false);
+  const [justCompletedUpload, setJustCompletedUpload] = useState(false);
+  const wasUploadingRef = useRef(false);
+
+  function handleUploadingChange(active: boolean) {
+    if (wasUploadingRef.current && !active) {
+      setJustCompletedUpload(true);
+      window.setTimeout(() => setJustCompletedUpload(false), UPLOAD_COMPLETE_TITLE_MS);
+    }
+    wasUploadingRef.current = active;
+    setUploading(active);
+  }
+
+  useBlurStatusTitle(
+    uploading || justCompletedUpload,
+    uploading ? '● Embedding…' : justCompletedUpload ? '✓ Embedding complete' : null,
+  );
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -52,17 +67,6 @@ export function AgentThread({
           <SandboxStatus backendUrl={backendUrl} ownerId={sessionId} />
         </div>
         <div className="flex items-center gap-1">
-          {ragEnabled && (
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Add research information"
-              disabled={!sessionId}
-              onClick={() => setRagSheetOpen(true)}
-            >
-              <BookOpen className="size-4" />
-            </Button>
-          )}
           <Button variant="ghost" size="icon" aria-label="Sandbox settings" onClick={onOpenSandboxSettings}>
             <Settings className="size-4" />
           </Button>
@@ -71,11 +75,13 @@ export function AgentThread({
 
       <AgentMessageList messages={messages} isRunning={isRunning} error={error} />
 
-      <Composer disabled={isRunning || !sessionId} onSend={sendMessage} />
-
-      {ragSheetOpen && sessionId && (
-        <RagUploadSheet backendUrl={backendUrl} sessionId={sessionId} onClose={() => setRagSheetOpen(false)} />
-      )}
+      <Composer
+        disabled={isRunning || !sessionId}
+        onSend={sendMessage}
+        backendUrl={backendUrl}
+        sessionId={sessionId}
+        onUploadingChange={handleUploadingChange}
+      />
     </main>
   );
 }

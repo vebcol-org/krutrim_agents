@@ -15,8 +15,14 @@ tmp/
 # apps/web/.env.local, and docker/.env are committed SYMLINKS pointing at
 # it (see .env.example / docker/README.md) — no secrets in them, just a
 # path, so they're explicitly un-ignored.
+#
+# .env.dev / .env.prod are per-machine copies of .env.example for the dev /
+# prod docker stacks (docker/docker-compose*.yml). .env.example is the only
+# committed template.
 .env
 .env.local
+.env.dev
+.env.prod
 !/backend/.env
 !/apps/web/.env.local
 !/docker/.env
@@ -54,6 +60,7 @@ vite.config.*.timestamp*
 vitest.config.*.timestamp*
 coverage
 celerybeat-schedule.db
+celerybeat-schedule
 dev_cache.py
 .zed
 .vscode

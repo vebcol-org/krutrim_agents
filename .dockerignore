@@ -9,8 +9,10 @@ coverage/
 backend/
 apps/desktop/
 
+# .gitignore
 .env
-.env.local
+.env.*
+!.env.example
 
 .git/
 .idea/

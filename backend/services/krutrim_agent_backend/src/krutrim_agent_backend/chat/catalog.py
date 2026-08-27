@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from krutrim_agent_management.config import settings
+
 
 @dataclass(frozen=True)
 class ChatModelOption:
@@ -21,7 +23,7 @@ class ChatModelOption:
 CHAT_MODEL_CATALOG: list[ChatModelOption] = [
     ChatModelOption(
         provider="openrouter",
-        model="deepseek/deepseek-v4-flash-0731",
+        model=settings.default_model,
         display_name="DeepSeek V4 Flash (OpenRouter)",
     ),
 ]

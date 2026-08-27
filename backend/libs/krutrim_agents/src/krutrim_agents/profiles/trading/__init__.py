@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from deepagents.middleware.subagents import SubAgent
+from krutrim_agent_management.config import settings
 from krutrim_agents_core.harness.prompts import load_prompt
 from krutrim_agents_core.profile import AgentProfile, RoleDefaults
 from krutrim_agents_core.providers.registry import build_chat_model
@@ -67,7 +68,7 @@ register_profile(
         default_models={
             "main": RoleDefaults(
                 provider="openrouter",
-                model="deepseek/deepseek-v4-flash-0731",
+                model=settings.default_model,
                 temperature=0.3,
                 max_tokens=4096,
             ),
@@ -79,7 +80,7 @@ register_profile(
             ),
             "writer": RoleDefaults(
                 provider="openrouter",
-                model="deepseek/deepseek-v4-flash-0731",
+                model=settings.default_model,
                 temperature=0.4,
                 max_tokens=8192,
             ),

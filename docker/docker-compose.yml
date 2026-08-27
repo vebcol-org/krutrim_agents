@@ -10,16 +10,29 @@
 # containers right alongside backend/celery-worker/frontend/redis.
 #
 #
-# All ${VAR} values here (REDIS_USER, REDIS_PASSWORD, VITE_BACKEND_URL, ...)
-# come from ONE shared .env at the repo root — docker/.env is a committed
-# symlink to it, so plain `docker compose` picks it up with no extra flags.
-# See ../.env.example for the full list.
+# This is the PRODUCTION stack: images built from each Dockerfile's `prod`
+# target (minimal, non-root, no build tools), immutable — no source is
+# mounted in, a code change means a rebuild. For a hot-reload local loop use
+# docker/docker-compose.dev.yml instead (see docker/README.md).
+#
+# Two kinds of variable feed this file:
+#   * ${VAR} interpolations (REDIS_PASSWORD, VITE_BACKEND_URL, TORCH_BACKEND, …)
+#     come from the repo-root .env, which `docker compose` auto-loads.
+#   * backend/celery-worker also get every key of ../.env.prod injected via
+#     `env_file` (git-ignored; `cp .env.example .env.prod`). Marked
+#     required:false so the stack still starts without it.
+# See ../.env.example for every key and the KRUTRIM_AGENT_ prefix rule.
 #
 # Run from the repo root:
+#   cp .env.example .env.prod    # then fill it in (also `cp .env.example .env`
+#                                # for the ${VAR} interpolations above)
 #   docker compose -f docker/docker-compose.yml build
-#   docker compose -f docker/docker-compose.yml up
+#   docker compose -f docker/docker-compose.yml up -d
 
-name: krutrim-agent
+# COMPOSE_PROJECT_NAME (repo-root .env or the shell) overrides this — run a
+# second isolated copy of the stack with `COMPOSE_PROJECT_NAME=krutrim-staging
+# docker compose -f docker/docker-compose.yml up`.
+name: ${COMPOSE_PROJECT_NAME:-krutrim-agent}
 
 services:
 
@@ -35,7 +48,24 @@ services:
     # itself represents "no password" (auth off, today's default).
     command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}']
     volumes:
-      - redis-data:/data
+      - krutrim-redis-data:/data
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: krutrim_qdrant
+    profiles: ["qdrant"]
+    volumes:
+      - krutrim-qdrant-data:/qdrant/storage
+    ports:
+      - "${QDRANT_HTTP_PORT:-6343}:6333"
+      - "${QDRANT_GRPC_PORT:-6344}:6334"
+    init: true
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   backend:
@@ -43,11 +73,22 @@ services:
     build:
       context: ../backend
       dockerfile: ../docker/backend.Dockerfile
+      target: prod
+      args:
+        # cpu (default) | gpu — see docker/backend.Dockerfile's TORCH_BACKEND
+        # header. gpu also needs the `deploy:` device reservation below.
+        TORCH_BACKEND: ${TORCH_BACKEND:-cpu}
     env_file:
-      - ../.env
+      - path: ../.env.prod
+        required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
       KRUTRIM_AGENT_STORAGE_ROOT: /data
+      # Vector store: faisslite (default) or qdrant — a pure RUNTIME switch (no
+      # rebuild; both clients ship in the image). In .env.prod set
+      # KRUTRIM_AGENT_VECTOR_STORE_BACKEND=qdrant + COMPOSE_PROFILES=qdrant +
+      # KRUTRIM_AGENT_QDRANT_URL=http://qdrant:6333; they reach the container
+      # via env_file above. See .env.example.
       OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
       TAVILY_SEARCH_API_BASE: ${TAVILY_SEARCH_API_BASE:+http://host.docker.internal:4100/}
@@ -65,7 +106,32 @@ services:
       # at runtime) — same reasoning.
       - ../backend/harness/memory:/app/harness/memory
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      # qdrant only exists when the "qdrant" profile is active — required:
+      # false keeps `docker compose up` working when it's not (e.g. the
+      # default faisslite backend), instead of erroring on an inactive
+      # service.
+      qdrant:
+        condition: service_started
+        required: false
+    # The prod image defaults to a non-root user, but this service drives the
+    # host Docker daemon through the socket mounted just above — which is
+    # root-owned — so it needs root. Kept here, next to that mount, rather
+    # than in the image. no-new-privileges still blocks setuid escalation.
+    user: "0:0"
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    # GPU (TORCH_BACKEND=gpu): uncomment to hand the container the host's
+    # NVIDIA GPUs (needs nvidia-container-toolkit on a CUDA linux/amd64 host).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     restart: unless-stopped
 
   celery-worker:
@@ -73,8 +139,15 @@ services:
     build:
       context: ../backend
       dockerfile: ../docker/celery.Dockerfile
+      target: prod
+      args:
+        # cpu (default) | gpu — see docker/celery.Dockerfile's TORCH_BACKEND
+        # header (cpu skips ~5GB of nvidia-* CUDA libs). gpu also needs the
+        # `deploy:` device reservation below.
+        TORCH_BACKEND: ${TORCH_BACKEND:-cpu}
     env_file:
-      - ../.env
+      - path: ../.env.prod
+        required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
       KRUTRIM_AGENT_STORAGE_ROOT: /data
@@ -88,7 +161,24 @@ services:
       - ${HOME}/.krutrim_agent:/data
       - ../backend/harness/memory:/app/harness/memory
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+        required: false
+    # Same reason as `backend` — the mounted docker.sock is root-owned.
+    user: "0:0"
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    # GPU (TORCH_BACKEND=gpu) — the worker is the heavier CUDA user (docling).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     restart: unless-stopped
 
   frontend:
@@ -96,15 +186,26 @@ services:
     build:
       context: ..
       dockerfile: docker/frontend.Dockerfile
+      target: prod
       args:
         VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:8000}
+    # Host 4200 -> 8080 in the container: the nginx-unprivileged base serves
+    # on 8080 as a non-root user (see frontend.Dockerfile / nginx.conf).
     ports:
-      - '4200:80'
+      - '4200:8080'
     depends_on:
       - backend
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 volumes:
-  ollama-models:
-  redis-data:
+  krutrim-redis-data:
+  krutrim-qdrant-data:
 

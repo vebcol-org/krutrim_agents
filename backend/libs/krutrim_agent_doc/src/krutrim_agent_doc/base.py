@@ -12,6 +12,8 @@ class ParsedDocument(BaseModel):
     success: bool
     text: str = ""
     parser_used: str = ""
+    stage: str | None = None
+    score: float | int | None = None 
     error: str | None = None
 
 

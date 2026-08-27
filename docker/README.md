@@ -6,12 +6,14 @@ Everything needed to run the whole stack — frontend, backend, Celery worker, R
 
 | File | Builds | Used by |
 |---|---|---|
-| [`backend.Dockerfile`](./backend.Dockerfile) | `services/krutrim_agent_backend` — the FastAPI app | `docker-compose.yml`'s `backend` service |
-| [`celery.Dockerfile`](./celery.Dockerfile) | `services/krutrim_agent_celery` — the Celery worker/beat (idle-container reaper, embeddings precompute) | `docker-compose.yml`'s `celery-worker` service |
-| [`frontend.Dockerfile`](./frontend.Dockerfile) | `apps/web` — Vite/React build, served by nginx | `docker-compose.yml`'s `frontend` service |
+| [`backend.Dockerfile`](./backend.Dockerfile) | `services/krutrim_agent_backend` — the FastAPI app. Multi-stage: `dev` (hot-reload) / `prod` (minimal, non-root) targets | both compose files' `backend` service |
+| [`celery.Dockerfile`](./celery.Dockerfile) | `services/krutrim_agent_celery` — the Celery worker/beat (idle-container reaper, embeddings precompute). Same `dev` / `prod` targets | both compose files' `celery-worker` service |
+| [`frontend.Dockerfile`](./frontend.Dockerfile) | `apps/web` — Vite/React. `dev` target = Vite dev server + HMR; `prod` target = static build served by unprivileged nginx | both compose files' `frontend` service |
 | [`sandbox.Dockerfile`](./sandbox.Dockerfile) | The locked-down image every **agent sandbox** container runs (no network, read-only rootfs, non-root) | Referenced by name (`krutrim_agent-sandbox:latest`) from backend/celery code — never built *by* compose, see below |
-| [`nginx.conf`](./nginx.conf) | Static-file + SPA fallback config for the frontend image | `frontend.Dockerfile` |
-| [`docker-compose.yml`](./docker-compose.yml) | Wires all of the above together | You, directly |
+| [`nginx.conf`](./nginx.conf) | Static-file + SPA fallback config for the frontend image (listens on 8080, non-root) | `frontend.Dockerfile` |
+| [`docker-compose.yml`](./docker-compose.yml) | **Production** stack — `prod` image targets, no source mounted, immutable | You, directly |
+| [`docker-compose.dev.yml`](./docker-compose.dev.yml) | **Local dev** stack — `dev` image targets, source bind-mounted, in-container reloaders | You, directly |
+| [`../.env.example`](../.env.example) | The one committed env **template** (every key, no secrets) | `cp .env.example .env` (native / prod stack) and `cp .env.example .env.dev` (dev stack) — both copies are git-ignored |
 
 ## The architecture this sets up
 
@@ -78,16 +80,107 @@ There's exactly **one** real env file, at the repo root. `backend/.env`, `apps/w
 
 ## Running it
 
+### Production stack (`docker-compose.yml`)
+
 ```bash
+cp .env.example .env.prod   # env_file for backend/celery — fill in
+                            # OPENROUTER_API_KEY, KRUTRIM_AGENT_* settings, …
+cp .env.example .env        # ${VAR} interpolation — VITE_BACKEND_URL,
+                            # REDIS_PASSWORD, TORCH_BACKEND, COMPOSE_PROFILES
 docker compose -f docker/docker-compose.yml build
-docker compose -f docker/docker-compose.yml up
+docker compose -f docker/docker-compose.yml up -d
 ```
+
+(both `.env` and `.env.prod` are git-ignored)
 
 - Frontend: http://localhost:4200
 - Backend: http://localhost:8000
 - Redis: localhost:6379
 
-No `uv run`, no `pnpm run web`, no separate Celery command — `docker compose up` starts/stops all of it together. `docker compose down` stops everything; add `-v` only if you also want to drop the `redis-data`/`ollama-models` *named volumes* (this does **not** touch your data — see below).
+Images are built from each Dockerfile's `prod` target: no `uv`/`pnpm`/git, no
+build caches, non-root by default (`backend`/`celery-worker` opt back into
+root *at the compose layer* because they bind-mount the root-owned
+`/var/run/docker.sock`; `frontend` runs fully rootless on nginx-unprivileged).
+`no-new-privileges`, `init: true`, and — for the frontend — a `read_only`
+rootfs with tmpfs scratch are set. Nothing from your working tree is mounted
+in, so a **code change means `build` + `up` again**.
+
+### Local dev stack (`docker-compose.dev.yml`)
+
+```bash
+cp .env.example .env.dev    # once (git-ignored). Optional — the stack still
+                            # starts without it, just without your API keys
+docker compose -f docker/docker-compose.dev.yml up --build
+```
+
+- Frontend (Vite dev server + HMR): http://localhost:4200
+- Backend (uvicorn `--reload`): http://localhost:8000
+
+Built from the `dev` targets. Your `backend/` tree and the repo root are
+**bind-mounted** into the containers, so editing a file on the host needs
+**no rebuild** — the change is live in the container immediately:
+
+| service | reloader | notes |
+|---|---|---|
+| `backend` | `uvicorn --reload` | scoped to `services/` + `libs/` (not `harness/`, which the app writes to) |
+| `frontend` | Vite HMR | `nx serve web` bound to `0.0.0.0:4200` |
+| `celery-worker` | none — restart by hand | a worker restart re-imports torch/docling, too expensive per save. After a task-code change: `docker compose -f docker/docker-compose.dev.yml restart celery-worker` |
+
+Env comes from `../.env.dev` (git-ignored; `cp .env.example .env.dev`). The project name defaults to
+`krutrim-agent-dev` (override with `COMPOSE_PROJECT_NAME`), so its containers
+and volumes never collide with the production stack's.
+
+Only a **dependency-manifest change** needs a rebuild:
+
+```bash
+# after editing pyproject.toml / uv.lock / package.json / pnpm-lock.yaml
+docker compose -f docker/docker-compose.dev.yml up --build
+```
+
+Don't use `docker compose watch` here: it **copies** changed files into the
+container instead of relying on the bind mount, and rebuilds the whole image
+on any manifest touch. Plain `up` (with `--build` when a manifest changed) is
+the loop.
+
+The frontend's `node_modules` lives in a named volume (`krutrim-web-node-modules-dev`)
+seeded from the image, so a dependency change after `--build` also needs that
+volume dropped: `docker compose -f docker/docker-compose.dev.yml down -v`. The
+backend/celery venv is baked into the image (`/opt/venv`, not a volume), so a
+plain `--build` refreshes it cleanly.
+
+**macOS / Windows:** native filesystem events don't reach bind mounts through
+the Docker VM. If a save isn't picked up, set `WATCHFILES_FORCE_POLLING=true`
+(backend) and/or `CHOKIDAR_USEPOLLING=true` / `WATCHPACK_POLLING=true`
+(frontend) in `.env.dev`.
+
+### CPU / GPU and the vector store (both stacks)
+
+Backend settings use the **`KRUTRIM_AGENT_` env prefix** — pydantic-settings
+strips it and assigns to the field (`KRUTRIM_AGENT_QDRANT_URL` → `qdrant_url`).
+`DEV_MODE`, `REDIS_*` and `LANGFUSE_*` also accept a bare name; `OPENROUTER_*`,
+`TAVILY_*`, `TORCH_BACKEND`, `COMPOSE_*`, `VITE_BACKEND_URL` and the `*_POLLING`
+toggles are always bare. See [`../.env.example`](../.env.example).
+
+- **`TORCH_BACKEND=cpu` (default) | `gpu`** — build arg (bare), read by the
+  `builder` stage, so it applies to **dev and prod alike**. `gpu` pulls CUDA
+  torch + `faiss-gpu-cu12`; helps only on a CUDA linux/amd64 host, and you must
+  also uncomment the `deploy:` device-reservation block on `backend` /
+  `celery-worker` (needs `nvidia-container-toolkit`). Rebuild after changing it.
+- **Vector store: `faisslite` (default) or `qdrant`** — *not* a build-time
+  choice (both clients ship in every image). In your env file set
+  `KRUTRIM_AGENT_VECTOR_STORE_BACKEND=qdrant`, `COMPOSE_PROFILES=qdrant`, and
+  `KRUTRIM_AGENT_QDRANT_URL=http://qdrant:6333` — no rebuild.
+- **Tavily search** — set `KRUTRIM_AGENT_WEB_SEARCH_PROVIDER=tavily` **and**
+  `TAVILY_API_KEY=…` (bare). Unset ⇒ the zero-config DuckDuckGo tool.
+- **`COMPOSE_PROJECT_NAME`** — both compose files use
+  `name: ${COMPOSE_PROJECT_NAME:-krutrim-agent[-dev]}`, so setting it (shell or
+  repo-root `.env`) runs a fully isolated second copy of a stack — its own
+  containers, network, and named volumes.
+
+---
+
+`docker compose down` stops everything; add `-v` only if you also want to drop
+the *named volumes* (this does **not** touch your bind-mounted data — see below).
 
 ## Persistent data
 

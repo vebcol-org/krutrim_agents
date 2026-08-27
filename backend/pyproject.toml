@@ -17,6 +17,30 @@ krutrim-agent-celery = { workspace = true }
 [tool.ty.rules]
 invalid-return-type = "ignore"
 
+# Named indexes for the torch/torchvision cpu-vs-gpu accelerator switch (see
+# krutrim_agent_doc and krutrim_agent_celery's [project.optional-dependencies]).
+# Declared once here since uv resolves the whole workspace as one lockfile.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-gpu"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+# krutrim-agent-celery's own cpu/gpu extras just forward to this pair (see
+# services/krutrim_agent_celery/pyproject.toml), so declaring the conflict
+# here once is enough — no separate torch/index config on celery itself.
+[tool.uv]
+conflicts = [
+    [
+        { package = "krutrim-agent-doc", extra = "cpu" },
+        { package = "krutrim-agent-doc", extra = "gpu" },
+    ],
+]
+
 [dependency-groups]
 # Virtual workspace root — no [project] table of its own (nothing lives
 # directly in backend/ anymore; see libs/ and services/). This dev group
@@ -28,9 +52,6 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "httpx>=0.28.1",
     "pytest-cov>=7.1.0",
-    # faisslite is a real dependency of krutrim-agent-rag now (embeddings.py),
-    # pulled in transitively via the workspace member below — no longer a
-    # standalone dev-only dependency.
     "krutrim-agent-utils",
     "krutrim-agent-management",
     "krutrim-agent-sandbox",

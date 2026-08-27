@@ -22,8 +22,34 @@ def _find_backend_root(start: Path) -> Path:
 
 BACKEND_ROOT = _find_backend_root(Path(__file__).resolve())
 
-# unprefixed fields (DEV_MODE, Langfuse keys) read via os.getenv need .env loaded manually
-load_dotenv(BACKEND_ROOT / ".env")
+
+def _env_files() -> tuple[Path, ...]:
+    """Ordered dotenv paths, lowest priority first.
+
+    Always `<BACKEND_ROOT>/.env`, then an optional environment-specific file
+    named by KRUTRIM_AGENT_ENV_FILE (e.g. `.env.dev`, `.env.prod`). That var
+    must come from the real environment — a shell export or the docker-compose
+    `environment:` block — it cannot live in the file it selects. A relative
+    value resolves against BACKEND_ROOT; a missing file is skipped.
+    """
+    files = []
+    override = os.getenv("KRUTRIM_AGENT_ENV_FILE", "").strip()
+    if override:
+        candidate = Path(override)
+        files.append(candidate if candidate.is_absolute() else BACKEND_ROOT / candidate)
+    if not files:
+        files.append(BACKEND_ROOT / ".env")
+    return tuple(files)
+
+
+ENV_FILES = _env_files()
+
+# unprefixed fields (DEV_MODE, Langfuse keys) are read via os.getenv, so the
+# dotenv files must be loaded manually here. Load the most specific file FIRST:
+# with override=False the first loader of a key wins and an already-set real env
+# var beats them all — giving precedence OS env > .env.dev > .env.
+for _env_path in reversed(ENV_FILES):
+    load_dotenv(_env_path)
 
 
 def _get_redis_url() -> str:
@@ -52,7 +78,17 @@ def _get_redis_url() -> str:
 
 
 class AppSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # env_prefix: every field below is read from KRUTRIM_AGENT_<FIELD> (case-
+    # insensitive) — pydantic-settings strips the prefix and assigns. Fields
+    # that also accept an UNPREFIXED name (DEV_MODE, LANGFUSE_*, REDIS_*) do it
+    # explicitly via a default_factory / os.getenv below.
+    # env_file: pydantic applies these low-priority (a real env var always wins)
+    # and last-wins across the tuple — so .env.dev overrides .env. See _env_files().
+    model_config = SettingsConfigDict(
+        env_prefix="krutrim_agent_",
+        env_file=ENV_FILES,
+        extra="ignore",
+    )
 
     host: str = "0.0.0.0"
     port: int = 8000
@@ -65,6 +101,9 @@ class AppSettings(BaseSettings):
 
     # runtime data (projects, sessions, checkpoints, ...); override via KRUTRIM_AGENT_STORAGE_ROOT
     storage_root: Path = Field(default_factory=default_storage_root)
+    
+    # Default Model settings
+    default_model: str = "deepseek/deepseek-v4-flash-0731" 
 
     # Storage backend registry — "local" (SQLite + filesystem) is the only implementation today
     storage_backend: str = "local"
@@ -111,7 +150,12 @@ class AppSettings(BaseSettings):
     # dotted modules overriding the no-op RequestAuthenticator/AgentVisibilityPolicy/AuditSink
     extension_sources: list[str] = []
 
-    dev_mode: bool = False
+    # KRUTRIM_AGENT_DEV_MODE (prefixed) wins; a bare DEV_MODE also works, read
+    # here since env_prefix would otherwise hide it.
+    dev_mode: bool = Field(
+        default_factory=lambda: os.getenv("DEV_MODE", "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
 
     # Langfuse tracing, only active when dev_mode is on; unprefixed to match the SDK's own env vars
     langfuse_public_key: str | None = Field(

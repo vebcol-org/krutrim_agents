@@ -53,3 +53,4 @@ def build_chat_graph(
     builder.add_edge("tools", "agent")
 
     return builder.compile()  # type: ignore
+

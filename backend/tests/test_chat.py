@@ -8,16 +8,17 @@ from krutrim_agent_backend.chat.messages import (
     to_lc_messages,
 )
 from krutrim_agent_backend.chat.usage import accumulate_usage
+from krutrim_agent_management.config import settings
 from langchain_core.messages import AIMessage, HumanMessage
 
 
 def test_default_chat_model_is_openrouter_deepseek():
     assert DEFAULT_CHAT_MODEL.provider == "openrouter"
-    assert DEFAULT_CHAT_MODEL.model == "deepseek/deepseek-v4-flash-0731"
+    assert DEFAULT_CHAT_MODEL.model == settings.default_model
 
 
 def test_is_known_chat_model():
-    assert is_known_chat_model("openrouter", "deepseek/deepseek-v4-flash-0731")
+    assert is_known_chat_model("openrouter", settings.default_model)
     assert not is_known_chat_model("openrouter", "made-up-model")
 
 

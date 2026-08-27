@@ -12,6 +12,7 @@ from krutrim_agent_backend.api.models_routes import router as models_router
 from krutrim_agent_backend.api.projects_routes import router as projects_router
 from krutrim_agent_backend.api.sessions_routes import router as sessions_router
 from krutrim_agent_management import LocalStorage
+from krutrim_agent_management.config import settings
 from langchain_core.messages import AIMessage
 
 
@@ -56,7 +57,7 @@ def test_list_models_returns_catalog(client):
     assert models == [
         {
             "provider": "openrouter",
-            "model": "deepseek/deepseek-v4-flash-0731",
+            "model": settings.default_model,
             "display_name": "DeepSeek V4 Flash (OpenRouter)",
         }
     ]
@@ -75,7 +76,7 @@ def test_first_message_creates_chat_and_session(client):
     chat = client.get(f"/api/chats/{body['chat_id']}").json()
     assert chat["project_id"] is None
     assert chat["provider"] == "openrouter"
-    assert chat["model"] == "deepseek/deepseek-v4-flash-0731"
+    assert chat["model"] == settings.default_model
     assert chat["display_name"] == "What's the capital of France?"
 
     sessions = client.get(f"/api/chats/{body['chat_id']}/sessions").json()

@@ -108,6 +108,7 @@ export function AgentLayout({ backendUrl }: AgentProps) {
           onNewSession={chat.startNewSession}
           onSend={chat.sendMessage}
           onOpenSandboxSettings={() => setSandboxSettingsOpen(true)}
+          onEnsureSession={chat.ensureSession}
         />
       )}
 

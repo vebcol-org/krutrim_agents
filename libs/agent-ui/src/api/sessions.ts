@@ -2,14 +2,13 @@ import type {
   ChatApiMessage,
   EmbedRequest,
   EmbedResponse,
-  RagTextRequest,
   RagTextResponse,
   SessionInfo,
   SessionSandboxPolicyUpdate,
   UpdateSessionRequest,
 } from '@krutrim_agent/shared-types';
 
-import { apiDelete, apiGet, apiPost, apiPut } from '../utils/http-client';
+import { apiDelete, apiGet, apiPost, apiPostForm, apiPut } from '../utils/http-client';
 import { embedResponseSchema, ragTextResponseSchema, sessionInfoSchema, sessionMessagesResponseSchema } from './schemas';
 
 /** `GET /api/sessions/{sessionId}` — sessions are addressed by id alone (globally unique). */
@@ -53,9 +52,17 @@ export function triggerEmbed(backendUrl: string, sessionId: string, body: EmbedR
   return apiPost(`${backendUrl}/api/sessions/${sessionId}/embed`, embedResponseSchema, body);
 }
 
-/** `POST /api/sessions/{sessionId}/rag/text` — dispatches RAG ingestion for pasted
- * text, or a `.txt` file's contents read client-side (v1 ingestion is text-only —
- * see `RagTextRequest`). */
-export function submitRagText(backendUrl: string, sessionId: string, body: RagTextRequest): Promise<RagTextResponse> {
-  return apiPost(`${backendUrl}/api/sessions/${sessionId}/rag/text`, ragTextResponseSchema, body);
+/** `POST /api/sessions/{sessionId}/rag/file` — real (binary-capable) document
+ * upload: PDF, DOCX, and anything else `krutrim_agent_doc`'s parser registry
+ * supports, not just plain text. Response shape is identical to `/rag/text`'s. */
+export function submitRagFile(
+  backendUrl: string,
+  sessionId: string,
+  file: File,
+  title?: string | null,
+): Promise<RagTextResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (title) formData.append('title', title);
+  return apiPostForm(`${backendUrl}/api/sessions/${sessionId}/rag/file`, ragTextResponseSchema, formData);
 }

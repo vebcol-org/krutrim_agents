@@ -295,14 +295,12 @@ export interface JobProgressEvent {
   total: number;
 }
 
-/** SSE payload shape from `GET /api/status/jobs/{job_id}` for a
- * `process_rag_document` job — mirrors `publish_job_stage_progress`. Same
- * channel/route as `JobProgressEvent`; distinguished by the extra `stage`
- * field, which `precompute_embeddings`'s plain `JobProgressEvent` never sends. */
+
 export interface RagIngestJobProgressEvent {
-  stage: 'extracting' | 'chunking' | 'embedding' | 'indexing';
-  processed: number;
-  total: number;
+  stage: 'extracting' | 'chunking' | 'embedding' | 'indexing' | 'error';
+  processed?: number;
+  total?: number;
+  error?: string;
 }
 
 /** One entry from `GET /api/models` — mirrors `krutrim_agent_backend.chat.catalog.ChatModelOption`. */
