@@ -1,6 +1,6 @@
 """Pluggable LLM provider settings system.
 
-Each supported backend (OpenRouter, Ollama, ...) gets a `ModelSettings`
+Each supported backend (OpenRouter, ...) gets a `ModelSettings`
 subclass describing its configurable fields plus a `Provider` that turns
 those settings into a LangChain `BaseChatModel`. `registry.py` ties the two
 together by a `provider` string key; `store.py` persists one named

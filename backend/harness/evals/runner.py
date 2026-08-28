@@ -2,7 +2,7 @@
 profile and checks each response against simple required-substring assertions.
 
 This is a developer tool, not part of `pytest` — it makes real LLM calls
-(needs `OPENROUTER_API_KEY` set, or Ollama running locally for whichever
+(needs `OPENROUTER_API_KEY` set, running locally for whichever
 roles use it) and a running Docker daemon for the sandbox. Run it directly:
 
     uv run python harness/evals/runner.py <agent_key>   # e.g. research, trading, sales

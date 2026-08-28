@@ -9,7 +9,7 @@ community-specific part. `krutrim_agent_backend` dispatches `precompute_embeddin
 via a separate, minimal Celery *client* of its own
 (`krutrim_agent_backend/celery_client.py`) using this task's registered name string,
 not by importing this module — so the FastAPI process never pulls in
-`numpy`/`langchain_ollama`/etc. just to enqueue a job.
+`numpy`/etc. just to enqueue a job.
 """
 
 from __future__ import annotations

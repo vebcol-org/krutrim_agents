@@ -215,19 +215,25 @@ register_profile(
                 provider="openrouter",
                 model=settings.default_model,
                 temperature=0.3,
-                max_tokens=4096,
+                max_tokens=1_000_000,
             ),
-            "researcher": RoleDefaults(
-                provider="openrouter", model="openai/gpt-4.1-mini", temperature=0.2
-            ),
-            "critic": RoleDefaults(
-                provider="ollama", model="llama3.1", temperature=0.0
-            ),
-            "writer": RoleDefaults(
+            "researcher":  RoleDefaults(
                 provider="openrouter",
                 model=settings.default_model,
-                temperature=0.4,
-                max_tokens=8192,
+                temperature=0.3,
+                max_tokens=1_000_000,
+            ),
+            "critic":  RoleDefaults(
+                provider="openrouter",
+                model=settings.default_model,
+                temperature=0.3,
+                max_tokens=1_000_000,
+            ),
+            "writer":  RoleDefaults(
+                provider="openrouter",
+                model=settings.default_model,
+                temperature=0.3,
+                max_tokens=1_000_000,
             ),
         },
         # Static fallback/doc string only — build_agent() calls graph_pattern

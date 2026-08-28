@@ -23,7 +23,7 @@ visible tool call. It reads the session id from the run's `thread_id`.
 
 from __future__ import annotations
 
-from ag_ui.core import EventType, RunErrorEvent
+from ag_ui.core import CustomEvent, EventType, RunErrorEvent
 from ag_ui.core.types import RunAgentInput
 from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, HTTPException, Request
@@ -51,6 +51,12 @@ from krutrim_agent_backend.chat.usage import accumulate_usage
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 CHECKPOINT_FILENAME = "langgraph_checkpoint.sqlite"
+
+#: Name of the ``CUSTOM`` AG-UI event that announces the chat/session ids the
+#: backend resolved (or created) for this run. Emitted **after** ``RUN_STARTED``
+#: so the AG-UI client's "first event must be RUN_STARTED" check still passes;
+#: the frontend stashes it and applies it on ``RUN_FINISHED``.
+CHAT_SESSION_EVENT = "chat_session"
 
 class ChatMessageRequest(BaseModel):
     """Only the fields `_get_or_create_chat` needs — the message text plus the
@@ -208,6 +214,20 @@ async def send_message(
                     on_finish=_record_usage,
                 ):
                     yield encoder.encode(event)
+                    # Announce the resolved ids right after RUN_STARTED — the
+                    # client needs them to adopt a chat/session created on this
+                    # first message (see `use-chat-stream.ts`).
+                    if getattr(event, "type", None) == EventType.RUN_STARTED:
+                        yield encoder.encode(
+                            CustomEvent(
+                                type=EventType.CUSTOM,
+                                name=CHAT_SESSION_EVENT,
+                                value={
+                                    "chat_id": chat.chat_id,
+                                    "session_id": session.session_id,
+                                },
+                            )
+                        )
         except Exception as exc:  # noqa: BLE001 - headers already sent; surface as RUN_ERROR
             logger.exception("chat: stream for session {} failed", session.session_id)
             yield encoder.encode(

@@ -76,7 +76,7 @@ register_profile(
                 provider="openrouter", model="openai/gpt-4.1-mini", temperature=0.2
             ),
             "critic": RoleDefaults(
-                provider="ollama", model="llama3.1", temperature=0.0
+                provider="openrouter", model="llama3.1", temperature=0.0
             ),
             "writer": RoleDefaults(
                 provider="openrouter",

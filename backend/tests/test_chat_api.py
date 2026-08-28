@@ -96,7 +96,7 @@ def test_first_message_creates_chat_and_session(client):
     result = send_chat(client, message="What's the capital of France?")
 
     assert result["status"] == 200
-    assert result["types"][:2] == ["CUSTOM", "RUN_STARTED"]
+    assert result["types"][:2] == ["RUN_STARTED", "CUSTOM"]
     assert result["types"][-1] == "RUN_FINISHED"
     assert result["text"] == REPLY_TEXT
     # streamed, not delivered whole
@@ -113,11 +113,17 @@ def test_first_message_creates_chat_and_session(client):
     assert [s["session_id"] for s in sessions] == [result["session_id"]]
 
 
-def test_run_stats_and_token_usage_events_are_emitted(client):
+def test_chat_session_event_follows_run_started(client):
     result = send_chat(client, message="hi")
-    names = {e.get("name") for e in result["events"] if e["type"] == "CUSTOM"}
-    assert CHAT_SESSION_EVENT in names
-    assert "run_stats" in names  # TimingPlugin
+    # AG-UI clients reject a stream whose first event isn't RUN_STARTED, so the
+    # id-announcing CUSTOM event must come *after* it.
+    assert result["types"][0] == "RUN_STARTED"
+    session_events = [e for e in result["events"] if e.get("name") == CHAT_SESSION_EVENT]
+    assert len(session_events) == 1
+    assert session_events[0]["value"] == {
+        "chat_id": result["chat_id"],
+        "session_id": result["session_id"],
+    }
 
 
 def test_usage_json_accumulates_per_turn(client):
