@@ -3,10 +3,10 @@ lookup, session resolution (create-if-missing, ownership validation), the
 health route, and the sandbox-registry lifecycle guarantee
 (get_or_create/release always pair up, even when the run errors mid-stream).
 
-The actual AG-UI streaming/deepagents graph machinery is `ag_ui_langgraph`'s
-and `deepagents`' own concern, not ours — so the full-request tests below
-monkeypatch `build_agent`/`LangGraphAgent` with fakes and use a fake sandbox
-registry, keeping focus on the wiring this module owns.
+The AG-UI stream translation itself is covered by `test_agui_translator.py`;
+the full-request tests below monkeypatch `build_agent`/`run_graph_as_agui` with
+fakes and use a fake sandbox registry, keeping focus on the wiring this module
+owns.
 """
 
 from __future__ import annotations
@@ -167,25 +167,20 @@ class FakeSandboxRegistry:
         self.release_calls.append(owner_id)
 
 
-class FakeLangGraphAgent:
-    """Replaces the real ag_ui_langgraph.LangGraphAgent so tests never touch
-    a real LLM/deepagents graph — only agent_run.py's own wiring."""
-
-    instances: list[FakeLangGraphAgent] = []
-
-    def __init__(self, name, graph, description=None):
-        self.name = name
-        FakeLangGraphAgent.instances.append(self)
-
-    async def run(self, input_data):
-        if False:
-            yield  # pragma: no cover - makes this an async generator with zero events
+_translator_calls: list[dict] = []
 
 
-class RaisingFakeLangGraphAgent(FakeLangGraphAgent):
-    async def run(self, input_data):
-        raise RuntimeError("boom")
-        yield  # pragma: no cover - unreachable, keeps this an async generator
+async def fake_run_graph_as_agui(graph, input_data, *, thread_id, plugins):
+    """Replaces our own LangGraph -> AG-UI translator so tests never touch a
+    real LLM/deepagents graph — only agent_run.py's own wiring."""
+    _translator_calls.append({"thread_id": thread_id, "plugins": plugins})
+    if False:
+        yield  # pragma: no cover - makes this an async generator with zero events
+
+
+async def raising_run_graph_as_agui(graph, input_data, *, thread_id, plugins):
+    raise RuntimeError("boom")
+    yield  # pragma: no cover - unreachable, keeps this an async generator
 
 
 @pytest.fixture
@@ -195,7 +190,7 @@ def wired_app(tmp_path, monkeypatch):
         "build_agent",
         lambda profile, store, sandbox, checkpointer=None, extra_tools=None: object(),
     )
-    FakeLangGraphAgent.instances.clear()
+    _translator_calls.clear()
 
     app = FastAPI()
     app.state.storage = LocalStorage(tmp_path)
@@ -206,7 +201,7 @@ def wired_app(tmp_path, monkeypatch):
 
 
 def test_successful_run_creates_session_and_releases_sandbox(wired_app, monkeypatch):
-    monkeypatch.setattr(agent_run, "LangGraphAgent", FakeLangGraphAgent)
+    monkeypatch.setattr(agent_run, "run_graph_as_agui", fake_run_graph_as_agui)
     agent = asyncio.run(_make_agent(wired_app.state.storage))
     client = TestClient(wired_app)
 
@@ -229,7 +224,7 @@ def test_successful_run_creates_session_and_releases_sandbox(wired_app, monkeypa
 
 
 def test_mid_stream_error_still_releases_sandbox(wired_app, monkeypatch):
-    monkeypatch.setattr(agent_run, "LangGraphAgent", RaisingFakeLangGraphAgent)
+    monkeypatch.setattr(agent_run, "run_graph_as_agui", raising_run_graph_as_agui)
     agent = asyncio.run(_make_agent(wired_app.state.storage))
     client = TestClient(wired_app)
 
@@ -246,7 +241,7 @@ def test_mid_stream_error_still_releases_sandbox(wired_app, monkeypatch):
 
 
 def test_explicit_session_id_is_reused(wired_app, monkeypatch):
-    monkeypatch.setattr(agent_run, "LangGraphAgent", FakeLangGraphAgent)
+    monkeypatch.setattr(agent_run, "run_graph_as_agui", fake_run_graph_as_agui)
     client = TestClient(wired_app)
     storage = wired_app.state.storage
 
@@ -267,7 +262,7 @@ def test_explicit_session_id_is_reused(wired_app, monkeypatch):
 
 
 def test_session_from_different_agent_rejected(wired_app, monkeypatch):
-    monkeypatch.setattr(agent_run, "LangGraphAgent", FakeLangGraphAgent)
+    monkeypatch.setattr(agent_run, "run_graph_as_agui", fake_run_graph_as_agui)
     client = TestClient(wired_app)
     storage = wired_app.state.storage
 

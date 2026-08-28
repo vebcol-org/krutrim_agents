@@ -220,6 +220,28 @@ class Storage(ABC):
     @abstractmethod
     async def write_usage(self, session_id: str, data: dict[str, Any]) -> None: ...
 
+    # -- RAG document manifest (sessions/{session_id}/rag/manifest.json) --
+    # A small append-only record of every document ingested into a session's
+    # vector index (`document_id`, `title`, `filename`, `source_path`,
+    # `created_at`, `kind`). The vectors themselves live in the store; this is
+    # just what the UI needs to show "files in this session" after a reload.
+
+    @abstractmethod
+    async def read_rag_manifest(self, session_id: str) -> list[dict[str, Any]]:
+        """Every RAG document ingested into this session, oldest first (`[]` if none)."""
+
+    @abstractmethod
+    async def append_rag_manifest(
+        self, session_id: str, entry: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Append one entry (de-duped on `document_id`); returns the full updated list."""
+
+    @abstractmethod
+    async def remove_rag_manifest_entry(
+        self, session_id: str, document_id: str
+    ) -> list[dict[str, Any]]:
+        """Drop the entry with this `document_id` (no-op if absent); returns the updated list."""
+
     # -- Cache (MCP / RAG / tool result caching) -------------------------
 
     @abstractmethod

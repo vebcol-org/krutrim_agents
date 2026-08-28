@@ -1,10 +1,9 @@
 """Bridges frontend-declared AG-UI tools into the model's tool list.
 
-`ag_ui_langgraph`'s own default state merge already puts every tool the
-frontend declared for this run (`RunAgentInput.tools`) into `state["tools"]`
-on every invocation — that's core AG-UI plumbing, nothing CopilotKit-specific
-about it. This middleware does the two things needed to make those tools
-actually usable:
+Our AG-UI stream translator (`krutrim_agent_backend.agui.run_graph_as_agui`)
+seeds `state["tools"]` from the tools the frontend declared for this run
+(`RunAgentInput.tools`) when it builds the graph input. This middleware does the
+two things needed to make those tools actually usable:
 
 1. `wrap_model_call` — adds them to the bound tool list so the model can call
    them at all.
@@ -41,7 +40,7 @@ if TYPE_CHECKING:
 
 
 class _FrontendToolState(AgentState):
-    """Extra state fields this middleware owns (`tools` is read-only here — written by `ag_ui_langgraph`, not us)."""
+    """Extra state fields this middleware owns (`tools` is read-only here — seeded by the AG-UI translator, not us)."""
 
     intercepted_tool_calls: list[dict[str, Any]] | None
     original_ai_message_id: str | None

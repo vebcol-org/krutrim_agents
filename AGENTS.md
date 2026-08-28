@@ -60,13 +60,6 @@ Follow this sequence for every change:
    - If a change makes any doc's "known gaps"/"not wired up" callouts stale (e.g. you actually wire up something previously flagged as disconnected), update that callout instead of leaving it stale — these docs must reflect what the code actually does, not what an older doc assumed.
    - Do **not** touch `.architecture/` as part of this step — see below.
 
-## `.architecture/` edit policy — do not update automatically
-
-`.architecture/*.md` is a deliberately curated, low-churn set of design notes for understanding *why* the system is architected the way it is — not a changelog, and not something that should drift on every commit.
-
-- Do not update `.architecture/` for routine changes, refactors, or new agent profiles/features that fit within the existing design.
-- Only update it when the **user explicitly says the architecture itself changed** and **explicitly asks you to update the `.architecture` docs**.
-- Even then, confirm with the user before editing — describe what you intend to change in `.architecture/` and get a go-ahead first. Never edit these files silently as a side effect of another task.
 
 ## Comment 
 

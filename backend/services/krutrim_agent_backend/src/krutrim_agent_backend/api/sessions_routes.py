@@ -16,6 +16,7 @@ history endpoint the frontend uses to reload a past conversation.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -76,8 +77,30 @@ class RagTextResponse(BaseModel):
     document_id: str
 
 
+class RagDocument(BaseModel):
+    document_id: str
+    title: str
+    filename: str | None = None
+    source_path: str
+    kind: str  # "file" | "text"
+    created_at: str
+
+
+class RagDocumentsResponse(BaseModel):
+    documents: list[RagDocument]
+
+
+class RagDocumentDeletedResponse(BaseModel):
+    status: str
+    document_id: str
+
+
 def _storage(request: Request) -> Storage:
     return request.app.state.storage
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 async def _get_session(storage: Storage, session_id: str) -> SessionInfo:
@@ -274,6 +297,17 @@ async def submit_rag_text(
     # its own progress stream at GET /api/status/jobs/{job_id}.
     job_id = f"{session_id}:rag:{document_id}"
     logger.debug("rag: queued process_rag_document task={} job={}", async_result.id, job_id)
+    await storage.append_rag_manifest(
+        session_id,
+        {
+            "document_id": document_id,
+            "title": title,
+            "filename": None,
+            "source_path": source_path,
+            "kind": "text",
+            "created_at": _now_iso(),
+        },
+    )
     return {
         "status": "queued",
         "task_id": async_result.id,
@@ -328,9 +362,45 @@ async def submit_rag_file(
     )
     job_id = f"{session_id}:rag:{document_id}"
     logger.debug("rag: queued process_rag_document task={} job={}", async_result.id, job_id)
+    await storage.append_rag_manifest(
+        session_id,
+        {
+            "document_id": document_id,
+            "title": title,
+            "filename": file.filename,
+            "source_path": source_path,
+            "kind": "file",
+            "created_at": _now_iso(),
+        },
+    )
     return {
         "status": "queued",
         "task_id": async_result.id,
         "job_id": job_id,
         "document_id": document_id,
     }
+
+
+@router.get("/{session_id}/rag/documents")
+async def list_rag_documents(session_id: str, request: Request) -> RagDocumentsResponse:
+    """Every document ingested into this session's RAG index (newest last),
+    read from `sessions/{id}/rag/manifest.json`. Backs the composer's
+    attachment bar so uploads stay visible after the first message / a reload."""
+    storage = _storage(request)
+    await _get_session(storage, session_id)
+    return {"documents": await storage.read_rag_manifest(session_id)}
+
+
+@router.delete("/{session_id}/rag/documents/{document_id}")
+async def delete_rag_document(
+    session_id: str, document_id: str, request: Request
+) -> RagDocumentDeletedResponse:
+    """Drops the document from the session manifest so it no longer shows in
+    the attachment bar. The already-indexed vectors are left in place — they
+    stop being addressable from the UI and are swept when the session is
+    deleted (`krutrim_agent_rag.cleanup.drop_session_vectors`). Idempotent."""
+    storage = _storage(request)
+    await _get_session(storage, session_id)
+    await storage.remove_rag_manifest_entry(session_id, document_id)
+    logger.info("rag: removed document {} from session {} manifest", document_id, session_id)
+    return {"status": "deleted", "document_id": document_id}

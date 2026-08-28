@@ -34,7 +34,6 @@ from __future__ import annotations
 from ag_ui.core import RunErrorEvent
 from ag_ui.core.types import RunAgentInput
 from ag_ui.encoder import EventEncoder
-from ag_ui_langgraph import LangGraphAgent
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from krutrim_agent_management.base import Storage
@@ -45,6 +44,8 @@ from krutrim_agents_core.registry import get_profile
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from loguru import logger
 from pydantic import BaseModel
+
+from krutrim_agent_backend.agui import run_graph_as_agui
 
 AGENT_RUN_PATH_PREFIX = "/agents"
 
@@ -151,18 +152,19 @@ def mount_agent_run_endpoint(app: FastAPI) -> None:
                         checkpointer=checkpointer,
                         extra_tools=extra_tools,
                     )
-                    request_agent = LangGraphAgent(
-                        name=agent.agent_key,
-                        graph=graph,
-                        description=profile.description,
-                    )
-                    async for event in request_agent.run(input_data):
+                    async for event in run_graph_as_agui(
+                        graph,
+                        input_data,
+                        thread_id=session.session_id,
+                    ):
                         yield encoder.encode(event)
             except Exception as exc:
-                # Headers are already sent by this point, so a raised exception
-                # can't become a clean HTTP error response (see error_handlers.py
-                # for that path on non-streaming routes) — emit it as an AG-UI
-                # RUN_ERROR event instead so the frontend sees a real message.
+                # Backstop for failures *around* the stream (sandbox / checkpointer
+                # setup). `run_graph_as_agui` converts failures during the graph
+                # run into a RUN_ERROR event itself and does not raise. Headers
+                # are already sent by this point, so a raised exception can't
+                # become a clean HTTP error response (see error_handlers.py for
+                # that path on non-streaming routes) — emit RUN_ERROR instead.
                 logger.exception("Agent run {!r} failed mid-stream: {}", agent_id, exc)
                 yield encoder.encode(
                     RunErrorEvent(message=f"{type(exc).__name__}: {exc}")

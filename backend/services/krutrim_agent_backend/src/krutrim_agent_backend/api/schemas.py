@@ -16,8 +16,8 @@ from pydantic import BaseModel
 class ChatApiMessage(BaseModel):
     """One turn's worth of chat history — matches `shared-types.ts`'s
     `ChatApiMessage` and `chat/messages.py::from_lc_messages`'s output
-    exactly. Used both by `POST /api/chat`'s reply and
-    `GET /api/sessions/{id}/messages`'s history."""
+    exactly. `GET /api/sessions/{id}/messages` returns a list of these;
+    `POST /api/chat` streams the live turn as AG-UI events instead."""
 
     role: Literal["user", "assistant"]
     content: str

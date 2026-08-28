@@ -123,3 +123,43 @@ def test_rag_file_unknown_session_returns_404(client):
     )
     assert response.status_code == 404
     assert client.fake_celery.calls == []
+
+
+def test_rag_document_manifest_lists_uploads_and_pasted_text(client):
+    session_id = _create_session(client)
+
+    client.post(
+        f"/api/sessions/{session_id}/rag/file",
+        files={"file": ("report.pdf", b"%PDF-1.4 fake", "application/pdf")},
+        data={"title": "Q3 Report"},
+    )
+    client.post(f"/api/sessions/{session_id}/rag/text", json={"text": "some notes", "title": "Notes"})
+
+    docs = client.get(f"/api/sessions/{session_id}/rag/documents").json()["documents"]
+    assert [(d["title"], d["kind"], d["filename"]) for d in docs] == [
+        ("Q3 Report", "file", "report.pdf"),
+        ("Notes", "text", None),
+    ]
+    assert all(d["created_at"] and d["source_path"] for d in docs)
+
+
+def test_rag_document_delete_removes_from_manifest_and_is_idempotent(client):
+    session_id = _create_session(client)
+    body = client.post(
+        f"/api/sessions/{session_id}/rag/file",
+        files={"file": ("a.txt", b"hello", "text/plain")},
+    ).json()
+    document_id = body["document_id"]
+
+    first = client.delete(f"/api/sessions/{session_id}/rag/documents/{document_id}")
+    assert first.status_code == 200
+    assert first.json() == {"status": "deleted", "document_id": document_id}
+    assert client.get(f"/api/sessions/{session_id}/rag/documents").json()["documents"] == []
+
+    # idempotent — deleting an already-gone id still 200s
+    assert client.delete(f"/api/sessions/{session_id}/rag/documents/{document_id}").status_code == 200
+
+
+def test_rag_documents_unknown_session_returns_404(client):
+    assert client.get("/api/sessions/nope/rag/documents").status_code == 404
+    assert client.delete("/api/sessions/nope/rag/documents/x").status_code == 404

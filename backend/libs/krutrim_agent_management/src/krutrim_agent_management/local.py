@@ -791,6 +791,49 @@ class _LocalStorageImpl:
         )
         self._blobs.write(self._usage_key(session_id), payload)
 
+    # -- rag document manifest --------------------------------------------
+
+    @staticmethod
+    def _rag_manifest_key(session_id: str) -> str:
+        return f"sessions/{session_id}/rag/manifest.json"
+
+    def read_rag_manifest(self, session_id: str) -> list[dict[str, Any]]:
+        data = self._blobs.read(self._rag_manifest_key(session_id))
+        if data is None:
+            return []
+        try:
+            items = json.loads(data)
+        except json.JSONDecodeError:
+            return []
+        return items if isinstance(items, list) else []
+
+    def _write_rag_manifest(self, session_id: str, items: list[dict[str, Any]]) -> None:
+        payload = json.dumps(items, indent=2, default=str).encode("utf-8")
+        self._blobs.write(self._rag_manifest_key(session_id), payload)
+
+    def append_rag_manifest(
+        self, session_id: str, entry: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        items = [
+            e
+            for e in self.read_rag_manifest(session_id)
+            if e.get("document_id") != entry.get("document_id")
+        ]
+        items.append(entry)
+        self._write_rag_manifest(session_id, items)
+        return items
+
+    def remove_rag_manifest_entry(
+        self, session_id: str, document_id: str
+    ) -> list[dict[str, Any]]:
+        items = [
+            e
+            for e in self.read_rag_manifest(session_id)
+            if e.get("document_id") != document_id
+        ]
+        self._write_rag_manifest(session_id, items)
+        return items
+
     # -- cache (mcp / rag / tool result caching) -----------------------
 
     def cache_get(self, project_id: str, namespace: str, key: str) -> Any | None:
@@ -1102,6 +1145,25 @@ class LocalStorage(Storage):
 
     async def write_usage(self, session_id: str, data: dict[str, Any]) -> None:
         return await asyncio.to_thread(self._impl.write_usage, session_id, data)
+
+    # -- rag document manifest ------------------------------------------
+
+    async def read_rag_manifest(self, session_id: str) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._impl.read_rag_manifest, session_id)
+
+    async def append_rag_manifest(
+        self, session_id: str, entry: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self._impl.append_rag_manifest, session_id, entry
+        )
+
+    async def remove_rag_manifest_entry(
+        self, session_id: str, document_id: str
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self._impl.remove_rag_manifest_entry, session_id, document_id
+        )
 
     # -- cache (mcp / rag / tool result caching) -----------------------
 

@@ -128,8 +128,19 @@ def _make_model_node(
         bound_model = (
             request.model.bind_tools(request.tools) if request.tools else request.model
         )
-        ai_message = bound_model.invoke(messages)
-        return ModelResponse(result=[ai_message])
+        # Stream, so LangGraph's `stream_mode="messages"` sees real token deltas
+        # (that's what `run_graph_as_agui` turns into `TEXT_MESSAGE_CONTENT` /
+        # `REASONING_MESSAGE_CONTENT` events). The accumulated chunk is a plain
+        # `AIMessage` for the rest of the graph. Falls back to `.invoke` for a
+        # model with no `.stream` (test fakes) or a stream that yields nothing.
+        stream = getattr(bound_model, "stream", None)
+        if callable(stream):
+            accumulated: AnyMessage | None = None
+            for chunk in stream(messages):
+                accumulated = chunk if accumulated is None else accumulated + chunk
+            if accumulated is not None:
+                return ModelResponse(result=[accumulated])
+        return ModelResponse(result=[bound_model.invoke(messages)])
 
     wrap_chain = _compose_wrap_model_call(middlewares, base_handler)
 

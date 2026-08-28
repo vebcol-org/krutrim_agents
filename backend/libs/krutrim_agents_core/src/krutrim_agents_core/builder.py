@@ -20,8 +20,9 @@ Wiring, in one place:
 - `middleware=[FrontendToolBridgeMiddleware()]`: bridges frontend-defined
   tools (the shared `render_content` action) into the model's tool list, and
   routes their execution back to the frontend.
-- `checkpointer`: required by `ag_ui_langgraph`'s agent wrapper (it calls
-  `graph.aget_state()` to track conversation state per `threadId`). Callers
+- `checkpointer`: required by the AG-UI stream translator
+  (`krutrim_agent_backend.agui.run_graph_as_agui` calls `graph.aget_state()` to
+  read the final message per `threadId` after a run). Callers
   pass a durable, session-scoped saver (see `api/agent_run.py` — a dedicated
   SQLite file per session, not shared across sessions); an `InMemorySaver()`
   is used only when no checkpointer is supplied, e.g. by tests that just need
@@ -91,9 +92,10 @@ class DeepAgentContext:
     - `FrontendToolBridgeMiddleware` — only fires inside a `create_agent`-built
       model node; a hand-written node silently won't bridge frontend tools
       unless you replicate that wiring yourself.
-    - checkpointer/state compatibility — `api/agent_run.py`'s `ag_ui_langgraph`
-      wrapper calls `graph.aget_state()` keyed by `threadId`; a custom graph
-      must be compiled with the same `checkpointer` and keep a `messages` key
+    - checkpointer/state compatibility — the AG-UI translator
+      (`krutrim_agent_backend.agui`) calls `graph.aget_state()` keyed by
+      `threadId`; a custom graph must be compiled with the same `checkpointer`
+      and keep a `messages` key
       shaped like `DeepAgentState` (it uses a `DeltaChannel` reducer to keep
       checkpoint growth linear) or streaming/resume breaks.
     - the `recursion_limit`/tracing `.with_config(...)` that `create_deep_agent`
