@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 
 import numpy as np
+from loguru import logger
 
 
 def default_embed(texts: list[str]) -> np.ndarray:
@@ -29,5 +30,12 @@ def default_embed(texts: list[str]) -> np.ndarray:
         api_key=os.environ["OPENROUTER_API_KEY"],
         base_url=os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1",
     )
+    logger.debug(
+        "rag.embed: embedding {} text(s) with model {}",
+        len(texts),
+        settings.rag_embedding_model,
+    )
     vectors = embeddings.embed_documents(texts)
-    return np.asarray(vectors, dtype="float32")
+    array = np.asarray(vectors, dtype="float32")
+    logger.debug("rag.embed: produced {} vector(s) of dim {}", array.shape[0], array.shape[1] if array.ndim == 2 else 0)
+    return array

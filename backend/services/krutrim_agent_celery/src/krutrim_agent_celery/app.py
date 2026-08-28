@@ -19,8 +19,16 @@ import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from krutrim_agent_celery_core.factory import build_celery_app
+from krutrim_agent_management.logging_config import configure_logging
+from loguru import logger
 
 from krutrim_agent_celery.config import celery_settings
+
+# Same loguru config as the FastAPI server (KRUTRIM_AGENT_LOG_* knobs), only
+# the sink differs: <KRUTRIM_AGENT_LOG_DIR>/worker/worker.log. Celery's own
+# stdlib log records are funnelled in via the intercept handler.
+configure_logging("worker")
+logger.info("krutrim-agent celery app importing (worker/beat)")
 
 celery_app = build_celery_app(
     "krutrim_agent_celery",

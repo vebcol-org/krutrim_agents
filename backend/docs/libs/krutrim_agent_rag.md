@@ -1,6 +1,6 @@
 # `krutrim_agent_rag` (backend/libs/krutrim_agent_rag)
 
-Package name: **`krutrim-agent-rag`** (`backend/libs/krutrim_agent_rag/pyproject.toml`). RAG library: session-scoped vector-store I/O (FAISS or Qdrant), chunking, OpenRouter embeddings, a pluggable retrieval strategy (vector-only or hybrid vector+BM25), the agent-initiated `rag_tool`, and a `RagInjectionMiddleware` wired into the `research` profile behind a feature flag. Depends on `krutrim_agent_management` (for `Storage`/`settings`) and `krutrim_agent_utils` (the `PluginRegistry`).
+Package name: **`krutrim-agent-rag`** (`backend/libs/krutrim_agent_rag/pyproject.toml`). RAG library: session-scoped vector-store I/O (FAISS or Qdrant), chunking, OpenRouter embeddings, a pluggable retrieval strategy (vector-only or hybrid vector+BM25), the agent-initiated `rag_tool`, a `RagInjectionMiddleware` wired into both the `research` profile and the plain `/api/chat` flow behind a feature flag, and a session-delete cleanup hook (`cleanup.py`) that frees a session's vector index when its chat is deleted. Depends on `krutrim_agent_management` (for `Storage`/`settings`/hooks) and `krutrim_agent_utils` (the `PluginRegistry`).
 
 ```
 krutrim_agent_rag/
@@ -14,7 +14,8 @@ krutrim_agent_rag/
 ├── retrieval_strategy.py           VectorOnlyStrategy, HybridStrategy (vector + BM25 via RRF)
 ├── retrieval_strategy_factory.py   create_retrieval_strategy(...) — same shape as vector_store_factory
 ├── tool.py                         rag_tool — agent-initiated retrieval tool
-└── middleware.py                   RagInjectionMiddleware — opt-in silent injection
+├── middleware.py                   RagInjectionMiddleware — opt-in silent injection
+└── cleanup.py                      drop_session_vectors(session_id) — session-delete hook, drops the vector index
 ```
 
 ## `embeddings.py` + `qdrant_store.py` + `vector_store_factory.py`
@@ -69,9 +70,20 @@ Silent retrieval injection: on every model call, retrieves top-k context for the
 
 **Wired into the `research` profile, off by default**, gated by `settings.rag_injection_enabled` (`KRUTRIM_AGENT_RAG_INJECTION_ENABLED=true` to enable). See `krutrim_agents/profiles/research/__init__.py`'s `_graph_pattern` — it appends `RagInjectionMiddleware()` to `context.middleware` only when the flag is set, scoped to `research` alone (`build_agent()`'s own profile-agnostic middleware list is untouched). Default `False` preserves `research`'s original behavior (tool-call semantics only) until an operator opts in.
 
+**Also wired into the plain `/api/chat` flow** (`krutrim_agent_backend.api.chat_routes`) under the same flag: when `rag_injection_enabled`, `send_message` adds one `RagInjectionMiddleware()` to `build_chat_graph(...)`, and always passes `config={"configurable": {"thread_id": session_id}}` so the middleware can resolve the session's index. That's what makes chat RAG end-to-end: upload via `POST /api/sessions/{id}/rag/file`|`/rag/text` → Celery `process_rag_document` indexes it → the next chat turn on that session retrieves and injects it.
+
+## `cleanup.py` — `drop_session_vectors`
+
+`drop_session_vectors(session_id)` — registered as a `krutrim_agent_management` session-delete hook at import time. Runs from `Storage.delete_session` (and every cascade: `delete_chat`, `delete_project`), so deleting a chat also frees its RAG storage. Config-driven on `settings.vector_store_backend`:
+
+- `"qdrant"` → `QdrantClient(...).delete_collection(f"session_{session_id}")` (matches `qdrant_store`'s naming), client built from the same `settings.qdrant_*` values.
+- `"faisslite"` → `shutil.rmtree(<storage_root>/sessions/{session_id}/embeddings)` (also covered by `delete_session`'s own dir `rmtree`, done here too so the function stands alone).
+
+Best-effort: a missing collection/dir or an unreachable Qdrant is logged, never raised. Armed in the FastAPI process by `import krutrim_agent_rag.cleanup` in `krutrim_agent_backend.main`.
+
 ## Dependencies
 
-[`pyproject.toml`](../../libs/krutrim_agent_rag/pyproject.toml) — package `krutrim-agent-rag`: `faisslite` (git dependency — FAISS embedding-index I/O), `qdrant-client` (Qdrant backend), `rank-bm25` (hybrid retrieval), `numpy`, `langchain-core`, `langchain-openai`, plus the internal workspace deps `krutrim-agent-management` and `krutrim-agent-utils`. **No** dependency on `krutrim-agents`/`krutrim-agents-core`/`krutrim-agent-backend` — this package stays usable from `krutrim_agent_celery` workers, which must not pull in the full LLM/agent stack. (Document parsing beyond plain text — PDF/DOCX — lives in the separate [`krutrim_agent_doc`](krutrim_agent_doc.md) package, a dependency of `krutrim_agent_celery` only, to keep this package's own dependency footprint light.)
+[`pyproject.toml`](../../libs/krutrim_agent_rag/pyproject.toml) — package `krutrim-agent-rag`: `faisslite` (git dependency — FAISS embedding-index I/O), `qdrant-client` (Qdrant backend), `rank-bm25` (hybrid retrieval), `numpy`, `langchain-core`, `langchain-openai`, `loguru` (step logging + `cleanup.py`), plus the internal workspace deps `krutrim-agent-management` and `krutrim-agent-utils`. **No** dependency on `krutrim-agents`/`krutrim-agents-core`/`krutrim-agent-backend` — this package stays usable from `krutrim_agent_celery` workers, which must not pull in the full LLM/agent stack. (Document parsing beyond plain text — PDF/DOCX — lives in the separate [`krutrim_agent_doc`](krutrim_agent_doc.md) package, a dependency of `krutrim_agent_celery` only, to keep this package's own dependency footprint light.)
 
 ## Relevant tests
 
@@ -80,3 +92,4 @@ Silent retrieval injection: on every model call, retrieves top-k context for the
 - `backend/tests/test_vector_store_factory.py` — backend registration/resolution.
 - `backend/tests/test_retrieval_strategy.py` — strategy registration/resolution, plus a correctness check that `HybridStrategy` surfaces a keyword match pure vector search misses.
 - `backend/tests/test_research_rag_injection.py` — `research`'s `_graph_pattern` includes/excludes `RagInjectionMiddleware` per `settings.rag_injection_enabled`.
+- `backend/tests/test_rag_cleanup.py` — `cleanup.drop_session_vectors` removes the FAISS dir, is a no-op when nothing exists, and is fired by `Storage.delete_chat`'s session cascade.

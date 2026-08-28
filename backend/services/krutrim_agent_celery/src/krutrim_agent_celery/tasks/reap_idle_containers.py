@@ -30,6 +30,7 @@ from krutrim_agent_sandbox.status_channel import (
     RedisPubSubBackend,
     publish_container_status,
 )
+from loguru import logger
 
 from krutrim_agent_celery.app import celery_app
 from krutrim_agent_celery.config import celery_settings
@@ -156,7 +157,12 @@ async def reap_idle_containers_once(
         finally:
             await store.delete_container(record.owner_id)
             _publish_safe(pubsub, record.owner_id, "stopped")
+        logger.info("reap_idle_containers: torn down idle container for {}", record.owner_id)
         reaped.append(record.owner_id)
+    if reaped:
+        logger.info("reap_idle_containers: reaped {} container(s)", len(reaped))
+    else:
+        logger.debug("reap_idle_containers: nothing idle to reap")
     return {"reaped": reaped}
 
 

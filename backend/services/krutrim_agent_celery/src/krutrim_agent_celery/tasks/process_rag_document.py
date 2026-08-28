@@ -19,6 +19,7 @@ from krutrim_agent_sandbox.status_channel import (
     publish_job_error,
     publish_job_stage_progress,
 )
+from loguru import logger
 
 from krutrim_agent_celery.app import celery_app
 
@@ -64,24 +65,49 @@ async def process_rag_document_once(
     """
 
     def _report(stage: str, processed: int, total: int) -> None:
+        logger.debug(
+            "process_rag_document[{}]: stage={} {}/{}", document_id, stage, processed, total
+        )
         if on_progress is not None:
             on_progress(stage, processed, total)
+
+    logger.info(
+        "process_rag_document[{}]: start session={} source={} title={!r}",
+        document_id,
+        session_id,
+        source_path,
+        title,
+    )
 
     _report(STAGE_EXTRACTING, 0, 1)
     content = await store.read_workspace_file(session_id, source_path)
     if content is None:
+        logger.warning(
+            "process_rag_document[{}]: no content at {!r} — aborting", document_id, source_path
+        )
         return {"status": "error", "error": f"No content found at '{source_path}'."}
     parsed = default_registry().parse(content, file_name=source_path)
     if not parsed.success:
+        logger.warning(
+            "process_rag_document[{}]: parse failed: {}", document_id, parsed.error
+        )
         return {"status": "error", "error": parsed.error or "Failed to parse document."}
     text = parsed.text
+    logger.debug(
+        "process_rag_document[{}]: extracted {} chars from {} bytes",
+        document_id,
+        len(text),
+        len(content),
+    )
     _report(STAGE_EXTRACTING, 1, 1)
 
     _report(STAGE_CHUNKING, 0, 1)
     chunks = chunk_text(text)
     _report(STAGE_CHUNKING, 1, 1)
+    logger.info("process_rag_document[{}]: chunked into {} chunk(s)", document_id, len(chunks))
 
     if not chunks:
+        logger.info("process_rag_document[{}]: nothing to index (0 chunks)", document_id)
         return {
             "status": "ok",
             "document_id": document_id,
@@ -104,6 +130,13 @@ async def process_rag_document_once(
     )
     index.save()
     _report(STAGE_INDEXING, 1, 1)
+    logger.info(
+        "process_rag_document[{}]: indexed {} chunk(s) (dim={}) for session {}",
+        document_id,
+        len(chunks),
+        vectors.shape[1],
+        session_id,
+    )
 
     return {
         "status": "ok",
@@ -129,6 +162,11 @@ def process_rag_document(
         _RAG_INGESTION_LOCK_KEY, timeout=_RAG_INGESTION_LOCK_TIMEOUT_SECONDS
     )
     if not lock.acquire(blocking=False):
+        logger.debug(
+            "process_rag_document[{}]: ingestion lock held, retrying in {}s",
+            document_id,
+            _RAG_INGESTION_RETRY_COUNTDOWN_SECONDS,
+        )
         raise self.retry(countdown=_RAG_INGESTION_RETRY_COUNTDOWN_SECONDS)
 
     try:
@@ -154,12 +192,23 @@ def process_rag_document(
             )
         )
         if result.get("status") == "error":
+            logger.warning(
+                "process_rag_document[{}]: finished with error: {}",
+                document_id,
+                result.get("error"),
+            )
             try:
                 publish_job_error(
                     pubsub, job_id, result.get("error", "Ingestion failed.")
                 )
             except Exception:  # noqa: BLE001 - best-effort, same as on_progress above
                 pass
+        else:
+            logger.info(
+                "process_rag_document[{}]: done ({} chunk(s) added)",
+                document_id,
+                result.get("chunks_added"),
+            )
         return result
     finally:
         try:

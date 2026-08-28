@@ -32,6 +32,11 @@ from krutrim_agent_backend.logging_config import configure_logging
 
 configure_logging()
 
+# Import for side effect: registers the session-delete hook that drops a
+# session's vector index (Qdrant collection / FAISS dir) whenever its chat or
+# session is deleted. See krutrim_agent_rag/cleanup.py.
+import krutrim_agent_rag.cleanup  # noqa: E402, F401
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:

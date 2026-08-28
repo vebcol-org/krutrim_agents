@@ -32,8 +32,10 @@ krutrim_agent_management/
 ├── storage_factory.py        create_storage(settings) — resolves settings.storage_backend against a PluginRegistry
 ├── models.py                   Project, Agent, Chat, SessionInfo, ContainerRecord, SharingScope, OwnerType
 ├── config.py                     AppSettings / settings singleton
-├── blobstore.py                    BlobStore ABC + LocalBlobStore (atomic tmp-file writes, via krutrim_agent_utils)
-└── paths.py                          default_storage_root() — ~/.krutrim_agent
+├── logging_config.py               configure_logging("server"|"worker") — shared loguru setup for every process
+├── hooks.py                          session-delete hook registry (run from LocalStorage.delete_session)
+├── blobstore.py                       BlobStore ABC + LocalBlobStore (atomic tmp-file writes, via krutrim_agent_utils)
+└── paths.py                             default_storage_root() — ~/.krutrim_agent
 ```
 
 A one-time migration script converts an old-shape `STORAGE_ROOT` to this one — see [§8](#8-migrating-an-existing-storage_root).
@@ -86,6 +88,8 @@ STORAGE_ROOT/
 **Locking / atomicity**: SQLite connections opened per call; writes serialized via a `threading.Lock` per DB file — one each for `project.db`, `agents.db`, `chats.db`, `sessions.db`, `containers.db`. All non-relational blobs go through `BlobStore.write`, which is atomic (tmp file + `Path.replace`). **Not safe across multiple processes** against the same `STORAGE_ROOT` — no cross-process locking.
 
 **Cascade deletes**: `delete_project` iterates `list_agents`/`list_chats` for that project and calls `delete_agent`/`delete_chat` on each (which themselves cascade their sessions) before removing the project row and directory. `move_chat` also re-stamps `project_id` onto every session the chat already owns, so cascade/filtering stays correct without a join.
+
+**`delete_session` runs the session-delete hooks** (`hooks.run_session_delete_hooks(session_id)`) just before dropping the row and directory — so every cascade path (`delete_chat`, `delete_project`) fires them too. `krutrim_agent_rag.cleanup` registers one to drop the session's vector index (Qdrant collection / on-disk FAISS dir, per `KRUTRIM_AGENT_VECTOR_STORE_BACKEND`); the FastAPI app arms it with `import krutrim_agent_rag.cleanup` at startup. A process that never imports it (e.g. the reaper) just runs zero hooks — the indirection keeps `krutrim_agent_management` from importing `krutrim_agent_rag` (which depends back on it). Hooks are best-effort: a failing one is logged and skipped, never allowed to block the delete.
 
 **Schemas** (core columns):
 
@@ -195,8 +199,12 @@ Note `agents.sandbox_sharing`/`chats.sandbox_sharing` are nullable with **no** `
 | `cors_origins` | `["http://localhost:4200", "http://localhost:5173", "http://localhost:4300"]` | |
 | `redis_url` | built from `REDIS_URL` or `REDIS_USER`/`REDIS_PASSWORD`/`REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`/`REDIS_USE_TLS` | Celery broker/result-backend, live-status pub/sub |
 | `cross_agent_call_timeout_seconds` | `60` | distinct from `SandboxPolicy.timeout_seconds` (one shell command) |
-| `dev_mode` | from `KRUTRIM_AGENT_DEV_MODE` or unprefixed `DEV_MODE` | gates Langfuse tracing |
+| `dev_mode` | from `KRUTRIM_AGENT_DEV_MODE` or unprefixed `DEV_MODE` | gates Langfuse tracing; **also forces both log sinks to `DEBUG`** |
 | `langfuse_public_key` / `langfuse_secret_key` / `langfuse_host` | unprefixed `LANGFUSE_*` | `LANGFUSE_BASE_URL` takes priority over `LANGFUSE_HOST` |
+| `log_dir` | `default_storage_root() / "logs"` | `KRUTRIM_AGENT_LOG_DIR`; per-component subdir (`server/`, `worker/`) added by `configure_logging` |
+| `log_level` / `log_console_level` | `"INFO"` / `"INFO"` | file-sink / stderr thresholds; both → `DEBUG` when `dev_mode` |
+| `log_rotation` / `log_retention` | `"1 day"` / `"14 days"` | loguru rotation trigger (period / clock-time / size) and prune age |
+| `log_compression` / `log_backtrace` / `log_intercept_std` | `""` / `false` / `true` | compress rotated files; extended tracebacks; funnel stdlib logging into loguru |
 
 Path helper properties/methods (derived from `harness_dir`/`memory_dir`, not settings themselves): `skills_dir`, `common_skills_dir`, `agent_skills_dir(agent_key)`, `prompts_dir(folder_name)` (**not** `agent_prompts_dir` — a pre-existing doc/test naming mismatch, fixed in `tests/test_agent_registry.py` during the RAG work), `memory_dir`, `agent_memory_dir(agent_key)`, `evals_dir`, `provider_settings_path` (→ `memory_dir/"settings.json"`, the `ProviderStore` file), `runs_dir` (→ `RunLogger`'s target directory, unused today — see [`krutrim_agents_core.md`](krutrim_agents_core.md#9-harness--promptskillmemory-loaders)).
 
@@ -209,6 +217,22 @@ Module-level singleton: `settings = AppSettings()`.
 ## 6. `paths.py`
 
 `default_storage_root() -> Path` — `Path.home() / ".krutrim_agent"`, created if missing. Kept separate from `local.py` so `config.py` can import it without pulling in `sqlite3`/`json`.
+
+## Logging
+
+[`logging_config.py`](../../libs/krutrim_agent_management/src/krutrim_agent_management/logging_config.py) — one shared loguru setup for **every** process. `configure_logging(component)` where `component` is `"server"` (FastAPI, called from `krutrim_agent_backend.logging_config`) or `"worker"` (Celery, called from `krutrim_agent_celery.app`). Same `KRUTRIM_AGENT_LOG_*` knobs (see §4), only the sink location differs:
+
+| component | file |
+|---|---|
+| `server` | `<log_dir>/server/server.log` |
+| `worker` | `<log_dir>/worker/worker.log` |
+
+- Console sink (`sys.stderr`) added once, at `log_console_level` (→ `DEBUG` when `dev_mode`).
+- Per-component rotating file sink at `log_level` (→ `DEBUG` when `dev_mode`), `rotation=log_rotation` (default `"1 day"` — a fresh file every 24h), `retention=log_retention`, `compression=log_compression or None`, `enqueue=True`, `backtrace=True`, **`diagnose=False`** (diagnose mode dumps locals into tracebacks → would leak provider API keys).
+- When `log_intercept_std` (default true), an `_InterceptHandler` routes stdlib `logging` (uvicorn, celery, httpx, faisslite, ...) through loguru so third-party records share the format and files.
+- Idempotent per component (`_configured: set[str]`); a second call for the same component is a no-op.
+
+`hooks.py` — `register_session_delete_hook(fn)` / `run_session_delete_hooks(session_id)`. A tiny registry so `Storage.delete_session` can fire external per-session cleanup without `krutrim_agent_management` importing the packages that do it. Today's only consumer: `krutrim_agent_rag.cleanup.drop_session_vectors`. Failures are logged, never raised.
 
 ## 7. Embedding-index I/O — relocated
 
@@ -226,4 +250,4 @@ It wraps every existing project in a new `Chat` (if `project_type == "chat"`) or
 
 ## Dependencies
 
-[`pyproject.toml`](../../libs/krutrim_agent_management/pyproject.toml) — package `krutrim-agent-management`: `pydantic`, `pydantic-settings`, `python-dotenv`, plus the internal workspace dep `krutrim-agent-utils` (the `PluginRegistry`/atomic-write helpers `storage_factory.py` and `blobstore.py` build on). **`faisslite` dropped** — it moved with `embeddings.py`/`vector_store_factory.py` to `krutrim_agent_rag` (see [§7](#7-embedding-index-io--relocated)).
+[`pyproject.toml`](../../libs/krutrim_agent_management/pyproject.toml) — package `krutrim-agent-management`: `pydantic`, `pydantic-settings`, `python-dotenv`, `loguru` (the shared `logging_config.py`), plus the internal workspace dep `krutrim-agent-utils` (the `PluginRegistry`/atomic-write helpers `storage_factory.py` and `blobstore.py` build on). **`faisslite` dropped** — it moved with `embeddings.py`/`vector_store_factory.py` to `krutrim_agent_rag` (see [§7](#7-embedding-index-io--relocated)).

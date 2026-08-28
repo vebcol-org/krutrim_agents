@@ -135,6 +135,32 @@ class AppSettings(BaseSettings):
 
     cors_origins: list[str] = []
 
+    # ── Logging ─────────────────────────────────────────────────────────
+    # One shared config for every process (see
+    # krutrim_agent_management.logging_config.configure_logging). The FastAPI
+    # server writes <log_dir>/server/server.log and the Celery worker writes
+    # <log_dir>/worker/worker.log — same knobs, different sink. Overridable
+    # with the KRUTRIM_AGENT_LOG_* env vars (see .env.example).
+    log_dir: Path = Field(default_factory=lambda: default_storage_root() / "logs")
+    # File-sink threshold. INFO by default; .env.dev raises it to DEBUG (and
+    # dev_mode forces DEBUG regardless, so both console + file get the verbose
+    # step-by-step trace during local development).
+    log_level: str = "INFO"
+    # stderr threshold; forced to DEBUG whenever dev_mode is on.
+    log_console_level: str = "INFO"
+    # loguru rotation trigger — a duration ("1 day"), a clock time ("00:00"),
+    # or a size ("20 MB"). "1 day" = a fresh periodic file every 24h.
+    log_rotation: str = "1 day"
+    # how long rotated files are kept before loguru deletes them.
+    log_retention: str = "14 days"
+    # "" keeps rotated files as-is; "zip"/"gz"/"tar.gz"/... compresses them.
+    log_compression: str = ""
+    # extended (variable-free) tracebacks in the file sink; also on when dev_mode.
+    log_backtrace: bool = False
+    # route stdlib logging (uvicorn / celery / httpx / ...) through loguru so
+    # everything lands in the same rotating files with one format.
+    log_intercept_std: bool = True
+
     # celery broker/result-backend
     redis_url: str = Field(default_factory=lambda: _get_redis_url())
 

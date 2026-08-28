@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from faisslite.exceptions import FaissliteError
+from loguru import logger
 
 from krutrim_agent_rag.embeddings_provider import default_embed
 from krutrim_agent_rag.models import RetrievedChunk, StoredChunk
@@ -41,8 +42,11 @@ def _vector_search(
     embed_fn: Callable[[list[str]], np.ndarray],
 ) -> list[StoredChunk]:
     try:
-        return store.search(embed_fn([query]), k=k)
-    except FaissliteError:
+        hits = store.search(embed_fn([query]), k=k)
+        logger.debug("rag.retrieval_strategy: vector search returned {} hit(s)", len(hits))
+        return hits
+    except FaissliteError as exc:
+        logger.debug("rag.retrieval_strategy: vector search failed ({}) — treating as empty", exc)
         return []
 
 
@@ -132,7 +136,13 @@ class HybridStrategy(RetrievalStrategy):
         bm25 = BM25Okapi([_tokenize(chunk.text) for chunk in corpus])
         scores = bm25.get_scores(_tokenize(query))
         ranked_indices = np.argsort(scores)[::-1][:k]
-        return [corpus[i] for i in ranked_indices if scores[i] > 0]
+        hits = [corpus[i] for i in ranked_indices if scores[i] > 0]
+        logger.debug(
+            "rag.retrieval_strategy: BM25 over {} chunk(s) returned {} hit(s)",
+            len(corpus),
+            len(hits),
+        )
+        return hits
 
 
 register_retrieval_strategy("vector_only", VectorOnlyStrategy)

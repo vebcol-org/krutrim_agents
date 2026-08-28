@@ -22,6 +22,7 @@ from krutrim_agent_management.storage_factory import create_storage
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.config import get_config
+from loguru import logger
 
 from krutrim_agent_rag.retrieval import retrieve
 
@@ -51,11 +52,20 @@ class RagInjectionMiddleware(AgentMiddleware[Any, Any]):
         session_id = _current_session_id()
         query = _latest_user_text(request.messages)
         if not session_id or not query:
+            logger.debug(
+                "RagInjectionMiddleware: skipping (session_id={}, has_query={})",
+                session_id,
+                bool(query),
+            )
             return handler(request)
 
         store = create_storage(settings)
         chunks = retrieve(store, session_id, query, k=self._k)
         if not chunks:
+            logger.debug(
+                "RagInjectionMiddleware: no context for session {} — no injection",
+                session_id,
+            )
             return handler(request)
 
         context_block = "\n\n".join(
@@ -65,4 +75,11 @@ class RagInjectionMiddleware(AgentMiddleware[Any, Any]):
         prefix = f"<retrieved_context>\n{context_block}\n</retrieved_context>\n\n"
         existing = request.system_message.content if request.system_message else ""
         request.system_message = SystemMessage(content=f"{prefix}{existing}")
+        logger.info(
+            "RagInjectionMiddleware: injected {} chunk(s) ({} chars) into system prompt "
+            "for session {}",
+            len(chunks),
+            len(prefix),
+            session_id,
+        )
         return handler(request)

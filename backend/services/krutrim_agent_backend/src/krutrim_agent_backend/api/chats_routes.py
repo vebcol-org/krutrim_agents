@@ -17,6 +17,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from krutrim_agent_management.base import Storage
 from krutrim_agent_management.models import Chat, SessionInfo, SharingScope
+from loguru import logger
 from pydantic import BaseModel
 
 from krutrim_agent_backend.chat.catalog import DEFAULT_CHAT_MODEL, is_known_chat_model
@@ -91,6 +92,11 @@ async def update_chat(chat_id: str, body: UpdateChatRequest, request: Request) -
 
 @router.delete("/{chat_id}")
 async def delete_chat(chat_id: str, request: Request) -> ChatDeletedResponse:
+    logger.info(
+        "chats: deleting chat {} — cascades its sessions and their vector indexes "
+        "(FAISS dir / Qdrant collection, per KRUTRIM_AGENT_VECTOR_STORE_BACKEND)",
+        chat_id,
+    )
     try:
         await _storage(request).delete_chat(chat_id)
     except KeyError as exc:

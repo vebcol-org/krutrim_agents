@@ -78,12 +78,12 @@ class _FakeModel:
     def bind_tools(self, tools):
         return self
 
-    async def ainvoke(self, messages):
+    def invoke(self, messages):
         assert messages[0].content == "system prompt"
         return AIMessage(content="reply")
 
 
 async def test_build_chat_graph_prepends_system_prompt_and_returns_reply():
-    graph = build_chat_graph(_FakeModel(), "system prompt")
+    graph = build_chat_graph(_FakeModel(), system_prompt="system prompt")
     result = await graph.ainvoke({"messages": [HumanMessage(content="hi")]})
     assert result["messages"][-1].content == "reply"

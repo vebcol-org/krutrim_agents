@@ -24,8 +24,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from krutrim_agent_management.base import Storage
 from krutrim_agent_management.blobstore import LocalBlobStore
+from krutrim_agent_management.hooks import run_session_delete_hooks
 from krutrim_agent_management.models import (
     Agent,
     Chat,
@@ -554,7 +557,13 @@ class _LocalStorageImpl:
 
     def delete_chat(self, chat_id: str) -> None:
         self.get_chat(chat_id)  # raises KeyError if unknown
-        for session in self.list_sessions("chat", chat_id):
+        sessions = self.list_sessions("chat", chat_id)
+        logger.info(
+            "deleting chat {} and its {} session(s) (incl. vector indexes)",
+            chat_id,
+            len(sessions),
+        )
+        for session in sessions:
             self.delete_session(session.session_id)
         with self._chats_db_lock, self._connect(self._chats_db_path) as conn:
             conn.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
@@ -747,11 +756,16 @@ class _LocalStorageImpl:
 
     def delete_session(self, session_id: str) -> None:
         self.get_session(session_id)  # raises KeyError if unknown
+        # External per-session teardown (e.g. krutrim_agent_rag dropping this
+        # session's Qdrant collection / FAISS index) runs before the row and
+        # directory go away. Best-effort — see hooks.run_session_delete_hooks.
+        run_session_delete_hooks(session_id)
         with self._sessions_db_lock, self._connect(self._sessions_db_path) as conn:
             conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
         session_dir = self.session_dir(session_id)
         if session_dir.exists():
             shutil.rmtree(session_dir)
+        logger.debug("deleted session {} (row + {})", session_id, session_dir)
 
     # -- checkpointer -------------------------------------------------------
 

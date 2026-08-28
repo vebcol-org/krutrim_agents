@@ -10,6 +10,7 @@ dependencies = [
     "langchain-openai>=1.4.1",
     "qdrant-client>=1.9",
     "rank-bm25>=0.2.2",
+    "loguru>=0.7.3",
     "krutrim-agent-management",
     "krutrim-agent-utils",
 ]

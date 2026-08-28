@@ -8,7 +8,7 @@ Routes are organized around the `Project -> (Agent | Chat) -> Session` hierarchy
 krutrim_agent_backend/
 ├── main.py                create_app() — lifespan startup/shutdown, CORS, extension middleware, router mounting
 ├── bootstrap.py             build_app_state()/install_app_state() — reusable app.state construction
-├── logging_config.py          loguru setup (console + rotating file sink)
+├── logging_config.py          thin shim → krutrim_agent_management.logging_config.configure_logging("server")
 ├── celery_client.py             minimal Celery client — enqueues tasks krutrim_agent_celery owns, by name
 ├── api/
 │   ├── agent_run.py            POST /agents/{agent_id} — the AG-UI streaming route (agent-instance scoped)
@@ -17,7 +17,7 @@ krutrim_agent_backend/
 │   ├── projects_routes.py        /api/projects/* CRUD + sandbox policy (explicit create — auto-creates a default Chat)
 │   ├── agent_instances_routes.py  /api/projects/{id}/agents/* CRUD + sandbox policy + owned-session create/list
 │   ├── chats_routes.py             /api/chats/* CRUD + move + sandbox policy + owned-session create/list
-│   ├── sessions_routes.py           /api/sessions/{id}/* — get/rename/delete/messages/sandbox-policy/embed/rag-text (session_id alone)
+│   ├── sessions_routes.py           /api/sessions/{id}/* — get/rename/delete/messages/sandbox-policy/embed/rag-text/rag-file (session_id alone; delete cascades the vector index)
 │   ├── settings_routes.py            /api/providers/* — per-(agent_key,role) provider settings CRUD
 │   ├── agents_routes.py               GET /api/agents — lists registered *profiles* (not instances — see agent_instances_routes.py)
 │   ├── models_routes.py                GET /api/models — chat model catalog
@@ -25,7 +25,7 @@ krutrim_agent_backend/
 │   ├── health.py                         GET /api/health
 │   └── error_handlers.py                  exception → JSON response mapping
 └── chat/
-    ├── graph.py                one-node LangGraph graph for the plain chat flow
+    ├── graph.py                hand-assembled ReAct graph (before_agent → model [→ tools] loop) with a pluggable middleware stack; backs the plain chat flow
     ├── catalog.py                 fixed model catalog for the chat project type
     ├── messages.py                  dict ↔ LangChain BaseMessage conversion
     └── usage.py                      per-turn/cumulative token usage accumulation
@@ -35,7 +35,7 @@ krutrim_agent_backend/
 
 [`main.py`](../../services/krutrim_agent_backend/src/krutrim_agent_backend/main.py), [`bootstrap.py`](../../services/krutrim_agent_backend/src/krutrim_agent_backend/bootstrap.py)
 
-`configure_logging()` runs at **module import time**, before `create_app()`/`lifespan()`.
+`configure_logging()` (→ `krutrim_agent_management.logging_config.configure_logging("server")`) runs at **module import time**, before `create_app()`/`lifespan()`. `main.py` also does `import krutrim_agent_rag.cleanup` for its side effect — registering the session-delete hook that drops a session's vector index (Qdrant collection / FAISS dir) whenever its chat or session is deleted.
 
 **`bootstrap.build_app_state(settings) -> AppState`** — extracted out of `lifespan()` so a *second* FastAPI app (e.g. a separate deployment wrapping this same platform with its own extra routes/middleware) can get the exact same startup wiring without re-deriving it:
 1. `provider_store = ProviderStore(settings.provider_settings_path)`
@@ -86,12 +86,12 @@ For the full event-by-event AG-UI trace (frontend tool bridging, `render_content
 
 1. Chat resolution: `chat_id` given → `storage.get_chat(chat_id)` (404 if unknown); omitted → validates `provider`/`model` against `CHAT_MODEL_CATALOG` (400 if unknown/unsupported, defaulting to `DEFAULT_CHAT_MODEL`) and creates a new `Chat` — **`project_id`, if given, scopes it to that project on creation; otherwise it's standalone**, matching the original pre-`Chat`-entity behavior.
 2. Session resolution: `session_id` omitted → `storage.create_session("chat", chat.chat_id)`; given → `storage.get_session(session_id)`, validated to belong to this chat (else 400).
-3. History load: `storage.read_checkpoint(session.session_id)` → `to_lc_messages` → append new `HumanMessage`.
-4. `build_chat_model({"provider": chat.provider, "model": chat.model})` (via `krutrim_agents_core.providers.registry` — the same choke point every other model goes through), `build_chat_graph(model, load_prompt("chat", "main"))`, `graph.ainvoke(...)` with full history.
-5. Persistence: `from_lc_messages` back to `checkpointer.json`; `chat.usage.accumulate_usage` folded into `usage.json` — both keyed by `session.session_id` alone now.
+3. Checkpointer: opens a durable per-session `AsyncSqliteSaver` at `sessions/{session_id}/langgraph_checkpoint.sqlite` (`CHECKPOINT_FILENAME`), keyed by `thread_id == session_id`. History is **LangGraph's** now — the call passes only the new `HumanMessage`; the checkpointer replays prior state and appends. (The old `storage.read_checkpoint`/`checkpointer.json` JSON round-trip is gone from this route.)
+4. `build_chat_model({"provider": chat.provider, "model": chat.model})` (via `krutrim_agents_core.providers.registry` — the same choke point every other model goes through), then `build_chat_graph(model, system_prompt=load_prompt("chat", "main"), checkpointer=checkpointer, middleware=middleware)`. `middleware` holds a single `RagInjectionMiddleware()` **iff `settings.rag_injection_enabled`** (`KRUTRIM_AGENT_RAG_INJECTION_ENABLED`) — it retrieves top-k context for the latest user turn from this session's vector index and prepends it to the system prompt, no visible tool call. `graph.ainvoke({"messages": [HumanMessage(...)]}, config={"configurable": {"thread_id": session_id}})` — the `thread_id` config is what the middleware reads to resolve the session.
+5. Persistence: history is in the sqlite checkpoint (step 3). Token usage is still folded into `usage.json` per turn via `chat.usage.accumulate_usage`, keyed by `session_id`.
 6. Response: `{chat_id, session_id, message}` — **note the field rename from the old `{project_id, session_id, message}` shape**; any frontend code expecting `project_id` here needs updating (tracked as part of the still-pending frontend phase of this hierarchy work).
 
-No in-memory conversation state — every call round-trips through `Storage`.
+Every step logs at INFO (chat/session resolved, reply produced) or DEBUG (prior message count, user text preview, usage totals) via `loguru` — see §5.
 
 ### `projects_routes.py` — `/api/projects`
 
@@ -131,7 +131,7 @@ Not to be confused with `agents_routes.py` (`GET /api/agents`, which lists regis
 | `GET /api/chats?project_id=<id>` | that project's chats; **omitting `project_id` lists standalone chats**, not "all chats" (matches `Storage.list_chats`'s semantics) |
 | `GET /api/chats/{chat_id}` | one chat; 404 |
 | `PUT /api/chats/{chat_id}` | body `UpdateChatRequest {display_name?}` — rename |
-| `DELETE /api/chats/{chat_id}` | cascades this chat's sessions |
+| `DELETE /api/chats/{chat_id}` | cascades this chat's sessions **and their vector indexes** — each session's FAISS dir / Qdrant collection is dropped via the `krutrim_agent_rag.cleanup` session-delete hook (`KRUTRIM_AGENT_VECTOR_STORE_BACKEND`) |
 | `POST /api/chats/{chat_id}/move` | body `MoveChatRequest {project_id: str \| None}` — sets or (passing `null`) clears the chat's project |
 | `PUT /api/chats/{chat_id}/sandbox-policy` | body `ChatSandboxPolicyUpdate {sharing?, idle_timeout_seconds?, resource_overrides?}` — stored regardless of `project_id`, only takes effect once one is set |
 | `POST /api/chats/{chat_id}/sessions` | creates a session owned by this chat |
@@ -146,7 +146,7 @@ Sessions are globally unique (`session_id` alone, no owner prefix needed to addr
 | `GET /api/sessions/{id}` | one session; 404 |
 | `PUT /api/sessions/{id}` | body `UpdateSessionRequest {display_name?}` — rename |
 | `DELETE /api/sessions/{id}` | 404 |
-| `GET /api/sessions/{id}/messages` | `{"messages": [...]}` from `storage.read_checkpoint` — used to reload a past conversation |
+| `GET /api/sessions/{id}/messages` | `{"messages": [...]}` read from the session's `langgraph_checkpoint.sqlite` (`build_chat_graph(object(), checkpointer=...)` → `aget_state` — the model is never invoked on a read), converted via `from_lc_messages`; `[]` if the session has never been messaged. Used to reload a past conversation. |
 | `PUT /api/sessions/{id}/sandbox-policy` | body `SessionSandboxPolicyUpdate {sharing?, attached_to_session_id?, linked_session_ids?}`. Validates: attach target must share this session's `project_id` (both non-null), no self-attach, no chained attaches (can't attach to a session that's itself attached), can't become an attach target while others already depend on this session — all 400 on violation. **No way to clear `attached_to_session_id` back to `None` via this route** (documented gap). |
 | `POST /api/sessions/{id}/embed` | body `EmbedRequest {source_paths?: list[str] \| None}` → `EmbedResponse {"status": "queued", "task_id", "job_id", "file_count"}`. If `source_paths` omitted, uses the full persisted workspace mirror. Dispatches `celery_client.send_task("krutrim_agent_celery.precompute_embeddings", args=[session_id, source_paths])`. `job_id = f"{session_id}:embed"` — session ids are globally unique, so no project qualifier is needed (this changed from the old `f"{project_id}:{session_id}:embed"` shape). Constructed the same way the Celery task constructs it itself, so the caller can subscribe to `GET /api/status/jobs/{job_id}` immediately, without waiting on Celery's result backend. |
 | `POST /api/sessions/{id}/rag/text` | body `RagTextRequest {text, title?}` → `RagTextResponse {"status": "queued", "task_id", "job_id", "document_id"}`. Empty/whitespace-only `text` → 400. Writes the text via the already-existing `Storage.sync_workspace_from_container(session_id, [(f"_rag_uploads/{document_id}.txt", text.encode())])` — no new `Storage` method needed. Dispatches `celery_client.send_task("krutrim_agent_celery.process_rag_document", args=[session_id, document_id, source_path, title])`, `title` defaulting to `document_id` if omitted. `job_id = f"{session_id}:rag:{document_id}"` — **per-document**, unlike `/embed`'s single per-session job id, since a session can ingest multiple RAG documents over time, each with its own progress stream. Pasted/`.txt`-read-client-side text only — see `/rag/file` for real binary uploads. |
@@ -186,7 +186,7 @@ Published by `krutrim_agent_celery` workers and `SandboxRegistry`; both routes s
 ## 3. `chat/` subpackage
 
 - **`catalog.py`** — `ChatModelOption(provider, model, display_name)` (frozen dataclass); `CHAT_MODEL_CATALOG` currently has **one entry**: `openrouter` / `deepseek/deepseek-v4-flash` / `"DeepSeek V4 Flash (OpenRouter)"`; `DEFAULT_CHAT_MODEL = CHAT_MODEL_CATALOG[0]`; `is_known_chat_model(provider, model)`.
-- **`graph.py`** — `build_chat_graph(model, system_prompt) -> CompiledStateGraph`: binds `[get_current_date, get_current_time, get_current_datetime]` (from `krutrim_agents_core.tools`) to the model; a `StateGraph(MessagesState)` with an `"agent"` node (`SystemMessage(system_prompt)` + history → `model_with_tools.ainvoke`) and a `"tools"` node (`ToolNode`); `START → agent`, conditional edge via `tools_condition` (→ `"tools"` or `END`), `tools → agent`. **No checkpointer** — history persistence is `Storage`'s job, not LangGraph's, here.
+- **`graph.py`** — `build_chat_graph(model, tools=None, *, system_prompt=None, system_prompt_fn=None, middleware=None, checkpointer=None, ...) -> CompiledStateGraph`: a hand-assembled ReAct graph with the same param names as `deepagents.create_deep_agent`. Nodes: `before_agent` (runs middleware `before_agent` hooks), `model` (`before_model` hooks → composed `wrap_model_call` chain → `after_model` hooks), and — only if any tools are present — `tools` (`ToolNode` with a composed `wrap_tool_call` chain). `START → before_agent → model`; with tools, a conditional edge routes `model → tools → model` until no tool calls, else `→ END`. The `chat` flow passes **no tools** and one optional `RagInjectionMiddleware`. A `checkpointer` (the per-session `AsyncSqliteSaver`) is now passed in by `chat_routes.py` — LangGraph owns history. `build_chat_graph(object(), checkpointer=...)` compiles fine for a pure `aget_state` read.
 - **`messages.py`** — `to_lc_messages(raw)` (dict → `AIMessage`/`HumanMessage` by `role`), `from_lc_messages(messages)` (reverse), `derive_title(message, max_len=60)` (whitespace-collapsed, truncated, `"Untitled chat"` fallback).
 - **`usage.py`** — `accumulate_usage(existing, reply: AIMessage)`: pulls `reply.usage_metadata` (`input_tokens`/`output_tokens`/`total_tokens`), sums into `existing["totals"]`, appends a per-turn record to `existing["turns"]`.
 
@@ -202,7 +202,7 @@ A minimal client so `krutrim_agent_backend` can `send_task()` by name across the
 
 ## 5. `logging_config.py`
 
-`configure_logging()` — idempotent (module-level guard). `log_dir = default_storage_root() / "logs"`. Removes loguru's default handler, adds: console sink (`sys.stderr`, `INFO`), rotating file sink (`app.log`, `DEBUG`, `rotation="10 MB"`, `retention="14 days"`, `enqueue=True`, `backtrace=True`, **`diagnose=False`**). `diagnose=False` is deliberate — loguru's diagnose mode dumps local variables into tracebacks, which would leak provider API keys sitting in locals inside `providers/*.py`.
+A one-line shim: `configure_logging() → krutrim_agent_management.logging_config.configure_logging("server")`. The actual loguru wiring lives in [`krutrim_agent_management`](../libs/krutrim_agent_management.md#logging) so the Celery worker (`krutrim_agent_celery.app`, component `"worker"`) shares the exact same config and `KRUTRIM_AGENT_LOG_*` knobs. Server logs land in `<KRUTRIM_AGENT_LOG_DIR>/server/server.log` (default `~/.krutrim_agent/logs/server/server.log`); periodic rotation (`KRUTRIM_AGENT_LOG_ROTATION`, default `"1 day"`), `KRUTRIM_AGENT_LOG_RETENTION` default `"14 days"`. Console = `INFO`, file = `INFO`, both forced to `DEBUG` when `DEV_MODE=true` (or set `KRUTRIM_AGENT_LOG_LEVEL=DEBUG` in `.env.dev`). stdlib logs (uvicorn/httpx/...) are intercepted into the same sinks. `diagnose=False` on the file sink is deliberate — loguru's diagnose mode dumps local variables into tracebacks, which would leak provider API keys sitting in locals inside `providers/*.py`.
 
 ## 6. `api/error_handlers.py`
 
@@ -227,4 +227,4 @@ If `~/.krutrim_agent` (or your configured `STORAGE_ROOT`) predates this route/mo
 
 ## Dependencies
 
-[`pyproject.toml`](../../services/krutrim_agent_backend/pyproject.toml) — package `krutrim-agent-backend`: `ag-ui-langgraph`, `ag-ui-protocol`, `langgraph`, `langgraph-checkpoint-sqlite`, `langchain`, `fastapi`, `uvicorn[standard]`, `pydantic`, `openai`, `loguru`, `celery[redis]` (deliberately **not** a dependency on `krutrim-agent-celery` itself — just used for `send_task`), plus workspace `krutrim-agent-management`, `krutrim-agent-sandbox`, `agents`, `krutrim-agent-extensions`. `[project.scripts] krutrim-agent-backend = "krutrim_agent_backend:main"` runs uvicorn with `reload=True`.
+[`pyproject.toml`](../../services/krutrim_agent_backend/pyproject.toml) — package `krutrim-agent-backend`: `ag-ui-langgraph`, `ag-ui-protocol`, `langgraph`, `langgraph-checkpoint-sqlite`, `langchain`, `fastapi`, `uvicorn[standard]`, `pydantic`, `openai`, `loguru`, `celery[redis]` (deliberately **not** a dependency on `krutrim-agent-celery` itself — just used for `send_task`), plus workspace `krutrim-agent-management`, `krutrim-agent-sandbox`, `krutrim-agent-rag` (chat RAG-injection middleware + the session-delete vector-store cleanup hook), `agents`, `krutrim-agent-extensions`. `[project.scripts] krutrim-agent-backend = "krutrim_agent_backend:main"` runs uvicorn with `reload=True`.

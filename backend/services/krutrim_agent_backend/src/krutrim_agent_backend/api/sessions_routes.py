@@ -21,10 +21,15 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from krutrim_agent_management.base import Storage
 from krutrim_agent_management.models import SessionInfo, SharingScope
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from loguru import logger
 from pydantic import BaseModel
 
+from krutrim_agent_backend.api.chat_routes import CHECKPOINT_FILENAME
 from krutrim_agent_backend.api.schemas import ChatApiMessage
 from krutrim_agent_backend.celery_client import celery_client
+from krutrim_agent_backend.chat.graph import build_chat_graph
+from krutrim_agent_backend.chat.messages import from_lc_messages
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -116,16 +121,35 @@ async def update_session(
 async def delete_session(session_id: str, request: Request) -> SessionDeletedResponse:
     storage = _storage(request)
     await _get_session(storage, session_id)
+    logger.info("sessions: deleting session {} (cascades vector index)", session_id)
     await storage.delete_session(session_id)
     return {"status": "deleted", "session_id": session_id}
 
 
 @router.get("/{session_id}/messages")
 async def get_session_messages(session_id: str, request: Request) -> SessionMessagesResponse:
+    """Reads history straight out of the session's LangGraph checkpoint
+    (`langgraph_checkpoint.sqlite`, written by `POST /api/chat`), keyed by
+    `thread_id == session_id`. Returns `[]` if the session has never been
+    messaged (no checkpoint file yet)."""
     storage = _storage(request)
     await _get_session(storage, session_id)
-    checkpoint = await storage.read_checkpoint(session_id)
-    return {"messages": (checkpoint or {}).get("messages", [])}
+
+    checkpoint_path = storage.session_dir(session_id) / CHECKPOINT_FILENAME
+    if not checkpoint_path.exists():
+        return {"messages": []}
+
+    # `build_chat_graph(object(), ...)` compiles fine and is only used here to
+    # resolve `aget_state` — the model is never invoked on a read.
+    config = {"configurable": {"thread_id": session_id}}
+    async with AsyncSqliteSaver.from_conn_string(str(checkpoint_path)) as checkpointer:
+        graph = build_chat_graph(object(), checkpointer=checkpointer)
+        state = await graph.aget_state(config)
+    lc_messages = (state.values or {}).get("messages", []) if state else []
+    logger.debug(
+        "sessions: {} history has {} message(s)", session_id, len(lc_messages)
+    )
+    return {"messages": from_lc_messages(lc_messages)}
 
 
 
@@ -199,6 +223,13 @@ async def trigger_embedding(
     # GET /api/status/jobs/{job_id} immediately, without waiting on Celery's
     # result backend to learn it.
     job_id = f"{session_id}:embed"
+    logger.info(
+        "rag: queued embedding precompute for session {} ({} file(s), task={}, job={})",
+        session_id,
+        len(source_paths),
+        async_result.id,
+        job_id,
+    )
     return {
         "status": "queued",
         "task_id": async_result.id,
@@ -227,6 +258,13 @@ async def submit_rag_text(
     )
 
     title = body.title or document_id
+    logger.info(
+        "rag: ingesting pasted text for session {} ({} chars) as document {} ({!r})",
+        session_id,
+        len(body.text),
+        document_id,
+        title,
+    )
     async_result = celery_client.send_task(
         "krutrim_agent_celery.process_rag_document",
         args=[session_id, document_id, source_path, title],
@@ -235,6 +273,7 @@ async def submit_rag_text(
     # id) — a session can ingest multiple RAG documents over time, each with
     # its own progress stream at GET /api/status/jobs/{job_id}.
     job_id = f"{session_id}:rag:{document_id}"
+    logger.debug("rag: queued process_rag_document task={} job={}", async_result.id, job_id)
     return {
         "status": "queued",
         "task_id": async_result.id,
@@ -275,11 +314,20 @@ async def submit_rag_file(
     await storage.sync_workspace_from_container(session_id, [(source_path, content)])
 
     title = title or file.filename or document_id
+    logger.info(
+        "rag: ingesting uploaded file {!r} for session {} ({} bytes, suffix={}) as document {}",
+        file.filename,
+        session_id,
+        len(content),
+        suffix,
+        document_id,
+    )
     async_result = celery_client.send_task(
         "krutrim_agent_celery.process_rag_document",
         args=[session_id, document_id, source_path, title],
     )
     job_id = f"{session_id}:rag:{document_id}"
+    logger.debug("rag: queued process_rag_document task={} job={}", async_result.id, job_id)
     return {
         "status": "queued",
         "task_id": async_result.id,

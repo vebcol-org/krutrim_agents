@@ -189,10 +189,12 @@ Handled entirely by [`api/chat_routes.py`](../backend/services/krutrim_agent_bac
 
 1. **Project resolution.** If `project_id` is omitted, a new project is created automatically — `project_type` defaults to `"chat"` (the only supported value today), `provider`/`model` default to the chat catalog's one entry (`openrouter` / `deepseek/deepseek-v4-flash`, see [`chat/catalog.py`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/chat/catalog.py)) unless the caller names a different known one, and the title is derived from the first message if not given. If `project_id` is supplied, that project is loaded and must be `project_type == "chat"`.
 2. **Session resolution.** Same auto-create-if-omitted pattern, scoped under the resolved project (`Storage.create_session` / `get_session`).
-3. **History load.** The session's `checkpointer.json` is read back via `Storage.read_checkpoint()` and converted from the stored `{role, content}` dicts into LangChain messages (`chat/messages.py`).
-4. **Graph invocation.** [`chat/graph.py:build_chat_graph()`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/chat/graph.py) compiles a one-node `StateGraph` (`MessagesState` → prepend a `SystemMessage` loaded from `backend/harness/prompts/chat/main.md` → call the model) and invokes it with the full history — no LangGraph-native checkpointer; persistence is handled by `Storage` instead so it survives a backend restart.
-5. **Persistence.** The updated message list is written back to `checkpointer.json`; per-turn + cumulative token usage (from the reply's `usage_metadata`) is folded into `usage.json` (`chat/usage.py`).
-6. **Response.** `{ project_id, session_id, message: { role: "assistant", content } }`.
+3. **Checkpointer.** A durable per-session `AsyncSqliteSaver` is opened at `sessions/{session_id}/langgraph_checkpoint.sqlite` (keyed by `thread_id == session_id`). History is now **LangGraph's** — the call passes only the new `HumanMessage`; the checkpointer replays prior state and appends. (The old `Storage.read_checkpoint`/`checkpointer.json` round-trip is gone from this route.)
+4. **Graph invocation.** [`chat/graph.py:build_chat_graph()`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/chat/graph.py) compiles a hand-assembled ReAct graph (`before_agent → model [→ tools]`) with a pluggable middleware stack. The `chat` flow passes no tools and — **iff `KRUTRIM_AGENT_RAG_INJECTION_ENABLED`** — one `RagInjectionMiddleware`, which retrieves top-k context for the latest user turn from this session's vector index and prepends it to the system prompt (loaded from `backend/harness/prompts/chat/main.md`). `graph.ainvoke(..., config={"configurable": {"thread_id": session_id}})`.
+5. **Persistence.** History lives in the sqlite checkpoint (step 3). Per-turn + cumulative token usage (from the reply's `usage_metadata`) is still folded into `usage.json` (`chat/usage.py`). Every step logs at INFO/DEBUG via loguru (`~/.krutrim_agent/logs/server/server.log`).
+6. **Response.** `{ chat_id, session_id, message: { role: "assistant", content } }`.
+
+RAG end-to-end for chat: upload a document to the session via `POST /api/sessions/{id}/rag/file` (or `/rag/text`) → the Celery `process_rag_document` task extracts/chunks/embeds/indexes it (`~/.krutrim_agent/logs/worker/worker.log`) → the next chat turn on that session retrieves and injects it. Deleting the chat (`DELETE /api/chats/{id}`) cascades its sessions and drops each session's vector index (FAISS dir / Qdrant collection, per `KRUTRIM_AGENT_VECTOR_STORE_BACKEND`) via the `krutrim_agent_rag.cleanup` session-delete hook.
 
 ### Storage layout
 
@@ -206,9 +208,12 @@ STORAGE_ROOT/
     session.db                                     -- SQLite, one row per session
     cache/{namespace}/{sha256(key)}.json           -- generic cache (mcp/rag/tool results)
     sessions/{session_id}/
-      checkpointer.json                             -- this session's message history
+      langgraph_checkpoint.sqlite                   -- this session's message history (LangGraph AsyncSqliteSaver)
       usage.json                                    -- per-turn + cumulative token usage
+      embeddings/                                   -- FAISS vector index (faisslite backend; Qdrant uses a `session_{id}` collection instead)
 ```
+
+Logs live outside `STORAGE_ROOT` under `KRUTRIM_AGENT_LOG_DIR` (default `~/.krutrim_agent/logs/`), split `server/server.log` (FastAPI) and `worker/worker.log` (Celery) — same loguru config, periodic rotation (`KRUTRIM_AGENT_LOG_ROTATION`, default `1 day`). See [`backend/docs/libs/krutrim_agent_management.md`](../backend/docs/libs/krutrim_agent_management.md#logging).
 
 ## 5. Backend API surface
 
@@ -221,7 +226,7 @@ STORAGE_ROOT/
 | `POST /api/chat`                                                              | [`api/chat_routes.py`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/api/chat_routes.py)         | Send a chat message; auto-creates the project/session on the first call (\*)                                       |
 | `GET/DELETE /api/projects`, `/api/projects/{project_id}`                      | [`api/projects_routes.py`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/api/projects_routes.py) | List/read/delete projects — no manual create route, see §4b                                                        |
 | `GET/DELETE /api/projects/{project_id}/sessions`, `.../sessions/{session_id}` | [`api/sessions_routes.py`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/api/sessions_routes.py) | List/read/delete sessions under a project                                                                          |
-| `GET /api/projects/{project_id}/sessions/{session_id}/messages`               | `api/sessions_routes.py`                                                                                               | Read-only message history for a session (reads `checkpointer.json`) — used to reload a past conversation in the UI |
+| `GET /api/sessions/{session_id}/messages`                                     | `api/sessions_routes.py`                                                                                               | Read-only message history for a session (reads `langgraph_checkpoint.sqlite` via `aget_state`) — used to reload a past conversation in the UI |
 | `GET /api/models`                                                             | [`api/models_routes.py`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/api/models_routes.py)     | Lists models available for the `chat` project type                                                                 |
 | `/api/health`                                                                 | [`api/health.py`](../backend/services/krutrim_agent_backend/src/krutrim_agent_backend/api/health.py)                   | Process-level health check                                                                                         |
 

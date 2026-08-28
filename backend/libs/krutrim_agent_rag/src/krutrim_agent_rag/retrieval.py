@@ -10,6 +10,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
+from krutrim_agent_management.config import settings
+from loguru import logger
 
 from krutrim_agent_rag.embeddings import index_exists, open_index
 from krutrim_agent_rag.embeddings_provider import default_embed
@@ -34,9 +36,27 @@ def retrieve(
     index has no live vectors — a research run early in its lifecycle,
     before anything's been ingested, is a normal state, not a failure."""
     embeddings_dir = store.session_dir(session_id) / "embeddings"
-    if not index_exists(embeddings_dir):
+    backend = settings.vector_store_backend
+    logger.debug(
+        "rag.retrieve: session={} backend={} strategy={} k={} query={!r}",
+        session_id,
+        backend,
+        settings.retrieval_strategy,
+        k,
+        query[:120],
+    )
+    if backend == "faisslite" and not index_exists(embeddings_dir):
+        logger.debug("rag.retrieve: no FAISS index at {} yet — returning []", embeddings_dir)
         return []
 
     index = open_index(embeddings_dir)
     strategy = create_retrieval_strategy()
-    return strategy.retrieve(index, query, k=k, embed_fn=embed_fn)
+    chunks = strategy.retrieve(index, query, k=k, embed_fn=embed_fn)
+    logger.info(
+        "rag.retrieve: session={} returned {} chunk(s) (backend={}, strategy={})",
+        session_id,
+        len(chunks),
+        backend,
+        settings.retrieval_strategy,
+    )
+    return chunks

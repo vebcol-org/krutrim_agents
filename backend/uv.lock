@@ -1760,6 +1760,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "krutrim-agent-extensions" },
     { name = "krutrim-agent-management" },
+    { name = "krutrim-agent-rag" },
     { name = "krutrim-agent-sandbox" },
     { name = "krutrim-agents" },
     { name = "langchain" },
@@ -1785,6 +1786,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "krutrim-agent-extensions", editable = "libs/krutrim_agent_extensions" },
     { name = "krutrim-agent-management", editable = "libs/krutrim_agent_management" },
+    { name = "krutrim-agent-rag", editable = "libs/krutrim_agent_rag" },
     { name = "krutrim-agent-sandbox", editable = "libs/krutrim_agent_sandbox" },
     { name = "krutrim-agents", editable = "libs/krutrim_agents" },
     { name = "krutrim-agents", extras = ["gpu"], marker = "extra == 'gpu'", editable = "libs/krutrim_agents" },
@@ -1811,6 +1813,7 @@ dependencies = [
     { name = "krutrim-agent-management" },
     { name = "krutrim-agent-rag" },
     { name = "krutrim-agent-sandbox" },
+    { name = "loguru" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or (extra == 'extra-17-krutrim-agent-doc-cpu' and extra == 'extra-17-krutrim-agent-doc-gpu')" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-17-krutrim-agent-doc-cpu' and extra == 'extra-17-krutrim-agent-doc-gpu')" },
 ]
@@ -1836,6 +1839,7 @@ requires-dist = [
     { name = "krutrim-agent-rag", editable = "libs/krutrim_agent_rag" },
     { name = "krutrim-agent-rag", extras = ["gpu"], marker = "extra == 'gpu'", editable = "libs/krutrim_agent_rag" },
     { name = "krutrim-agent-sandbox", editable = "libs/krutrim_agent_sandbox" },
+    { name = "loguru", specifier = ">=0.7.3" },
     { name = "numpy", specifier = ">=1.26" },
 ]
 provides-extras = ["cpu", "gpu"]
@@ -1912,6 +1916,7 @@ version = "0.1.0"
 source = { editable = "libs/krutrim_agent_management" }
 dependencies = [
     { name = "krutrim-agent-utils" },
+    { name = "loguru" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -1920,6 +1925,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "krutrim-agent-utils", editable = "libs/krutrim_agent_utils" },
+    { name = "loguru", specifier = ">=0.7.3" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
@@ -1935,6 +1941,7 @@ dependencies = [
     { name = "krutrim-agent-utils" },
     { name = "langchain-core" },
     { name = "langchain-openai" },
+    { name = "loguru" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or (extra == 'extra-17-krutrim-agent-doc-cpu' and extra == 'extra-17-krutrim-agent-doc-gpu')" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-17-krutrim-agent-doc-cpu' and extra == 'extra-17-krutrim-agent-doc-gpu')" },
     { name = "qdrant-client" },
@@ -1954,6 +1961,7 @@ requires-dist = [
     { name = "krutrim-agent-utils", editable = "libs/krutrim_agent_utils" },
     { name = "langchain-core", specifier = ">=1.3.14" },
     { name = "langchain-openai", specifier = ">=1.4.1" },
+    { name = "loguru", specifier = ">=0.7.3" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "qdrant-client", specifier = ">=1.9" },
     { name = "rank-bm25", specifier = ">=0.2.2" },

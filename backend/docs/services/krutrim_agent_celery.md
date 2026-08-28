@@ -6,7 +6,7 @@ Package name: **`krutrim-agent-celery`** (`backend/services/krutrim_agent_celery
 
 ```
 krutrim_agent_celery/
-├── app.py               Celery app instance via krutrim_agent_celery_core.build_celery_app(), beat schedule, task registration
+├── app.py               configure_logging("worker") + Celery app instance via krutrim_agent_celery_core.build_celery_app(), beat schedule, task registration
 ├── config.py              celery_settings — KRUTRIM_AGENT_CELERY_-prefixed env vars
 └── tasks/
     ├── reap_idle_containers.py    beat-scheduled — tears down idle sandbox containers
@@ -37,6 +37,10 @@ from krutrim_agent_celery.tasks import process_rag_document as _process_rag_docu
 ```
 
 `build_celery_app` (`krutrim_agent_celery_core.factory` — see [`libs/krutrim_agent_celery_core.md`](../libs/krutrim_agent_celery_core.md)) does the generic `Celery(name, broker=settings.redis_url, backend=settings.redis_url)` + `conf.timezone`/`conf.beat_schedule` wiring, shared with any other Celery service in this workspace; this module supplies its own name, beat schedule, and task list — the community-specific part. Both broker and result-backend point at Redis — the only pub/sub-style implementation in this codebase today. Only `reap_idle_containers` is on the beat schedule; `precompute_embeddings` is dispatched on-demand from `krutrim_agent_backend`, never scheduled.
+
+### Logging
+
+`app.py` calls `krutrim_agent_management.logging_config.configure_logging("worker")` at import time — the **same** loguru config and `KRUTRIM_AGENT_LOG_*` knobs the FastAPI server uses ([`krutrim_agent_management` §Logging](../libs/krutrim_agent_management.md#logging)), only the sink differs: `<KRUTRIM_AGENT_LOG_DIR>/worker/worker.log` (default `~/.krutrim_agent/logs/worker/worker.log`), periodic rotation (`KRUTRIM_AGENT_LOG_ROTATION`, default `"1 day"`). Celery's own stdlib log records are funnelled into the same file via the intercept handler, so `--loglevel` output and our `logger.*` calls share one format and one rotating file. Each task logs its stages at INFO/DEBUG: `process_rag_document` (extract → chunk → embed → index, plus lock-contention retries), `precompute_embeddings` (per-file chunk counts), `reap_idle_containers` (per-container teardown).
 
 The two task-module imports **must stay after** `celery_app = build_celery_app(...)` — they're side-effect-only (registering the `@celery_app.task`-decorated functions against this app instance), and each task module does `from krutrim_agent_celery.app import celery_app`, which only resolves once that assignment has completed (a circular import otherwise — see `krutrim_agent_celery_core.factory`'s docstring for why `build_celery_app` deliberately doesn't import task modules itself).
 

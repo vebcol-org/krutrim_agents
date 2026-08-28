@@ -39,6 +39,7 @@ from krutrim_agent_sandbox.status_channel import (
     RedisPubSubBackend,
     publish_job_progress,
 )
+from loguru import logger
 
 from krutrim_agent_celery.app import celery_app
 
@@ -67,6 +68,11 @@ async def precompute_embeddings_once(
     embeddings_dir = store.session_dir(session_id) / "embeddings"
     index = None
     chunks_added = 0
+    logger.info(
+        "precompute_embeddings: session={} processing {} source file(s)",
+        session_id,
+        total,
+    )
     for processed, path in enumerate(source_paths, start=1):
         content = await store.read_workspace_file(session_id, path)
         if content is not None:
@@ -78,10 +84,27 @@ async def precompute_embeddings_once(
                     index = open_index(embeddings_dir, dim=vectors.shape[1])
                 index.add(vectors, source=path, texts=chunks)
                 chunks_added += len(chunks)
+                logger.debug(
+                    "precompute_embeddings: {} -> {} chunk(s) ({}/{})",
+                    path,
+                    len(chunks),
+                    processed,
+                    total,
+                )
+            else:
+                logger.debug("precompute_embeddings: {} produced no chunks", path)
+        else:
+            logger.debug("precompute_embeddings: no workspace file at {} — skipped", path)
         if on_progress is not None:
             on_progress(processed, total)
     if index is not None:
         index.save()
+    logger.info(
+        "precompute_embeddings: session={} done — {} file(s), {} chunk(s) added",
+        session_id,
+        total,
+        chunks_added,
+    )
     return {"files_processed": total, "chunks_added": chunks_added}
 
 
