@@ -1,12 +1,16 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Message } from '@ag-ui/client';
-import type { Agent } from '@krutrim_agent/shared-types';
+import type { Agent, SessionInfo } from '@krutrim_agent/shared-types';
 import { Badge, Button } from '@krutrim_agent/ui';
 import { Settings } from 'lucide-react';
 
+import { fetchSession } from '../../api';
+import type { ReasoningEntry } from '../../hooks/use-agent-stream';
 import { useBlurStatusTitle } from '../../hooks/use-blur-status-title';
-import { SandboxStatus } from '../sandbox-status';
+import { useSessionFiles } from '../../hooks/use-session-files';
+import { FilesButton, FilesDrawer } from '../agent/files-drawer';
 import { Composer } from '../agent/composer';
+import { SandboxStatus } from '../sandbox-status';
 import { AgentMessageList } from './agent-message-list';
 
 /** How long the "✓ Embedding complete" tab-title status stays up after the
@@ -19,43 +23,64 @@ export interface AgentThreadProps {
   sessionId: string | null;
   onOpenSandboxSettings: () => void;
   /** Lifted to `AgentLayout` (via `useAgentChat`) so `OutputPanel`, a sibling,
-   * can derive its canvas payload from the same live message list — see
-   * `utils/render-payload.ts`. */
+   * can derive its canvas payload from the same live message list. */
   messages: Message[];
+  reasoningByMessageId: Record<string, ReasoningEntry>;
   isRunning: boolean;
   error: string | null;
   sendMessage: (text: string) => void;
 }
 
-/** Live counterpart to `../agent/chat-thread.tsx`, for the `Agent` (AG-UI/streaming) flow
- * rather than the plain `chat` flow — same header/list/composer shape, driven by props
- * instead of its own `useAgentChat` call (see `AgentThreadProps`). */
+/** Live counterpart to `../agent/chat-thread.tsx`, for the `Agent` (AG-UI/streaming) flow. */
 export function AgentThread({
   backendUrl,
   agent,
   sessionId,
   onOpenSandboxSettings,
   messages,
+  reasoningByMessageId,
   isRunning,
   error,
   sendMessage,
 }: AgentThreadProps) {
-  const [uploading, setUploading] = useState(false);
+  const files = useSessionFiles({ backendUrl, sessionId });
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [session, setSession] = useState<SessionInfo | null>(null);
   const [justCompletedUpload, setJustCompletedUpload] = useState(false);
-  const wasUploadingRef = useRef(false);
+  const wasProcessingRef = useRef(false);
 
-  function handleUploadingChange(active: boolean) {
-    if (wasUploadingRef.current && !active) {
-      setJustCompletedUpload(true);
-      window.setTimeout(() => setJustCompletedUpload(false), UPLOAD_COMPLETE_TITLE_MS);
+  useEffect(() => {
+    if (!sessionId) {
+      setSession(null);
+      return;
     }
-    wasUploadingRef.current = active;
-    setUploading(active);
-  }
+    let live = true;
+    fetchSession(backendUrl, sessionId)
+      .then((s) => {
+        if (live) setSession(s);
+      })
+      .catch(() => {
+        /* non-critical — the drawer just omits the start time */
+      });
+    return () => {
+      live = false;
+    };
+  }, [backendUrl, sessionId]);
+
+  useEffect(() => {
+    const wasProcessing = wasProcessingRef.current;
+    wasProcessingRef.current = files.isProcessing;
+    if (wasProcessing && !files.isProcessing) {
+      setJustCompletedUpload(true);
+      const t = window.setTimeout(() => setJustCompletedUpload(false), UPLOAD_COMPLETE_TITLE_MS);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [files.isProcessing]);
 
   useBlurStatusTitle(
-    uploading || justCompletedUpload,
-    uploading ? '● Embedding…' : justCompletedUpload ? '✓ Embedding complete' : null,
+    files.isProcessing || justCompletedUpload,
+    files.isProcessing ? '● Embedding…' : justCompletedUpload ? '✓ Embedding complete' : null,
   );
 
   return (
@@ -67,20 +92,35 @@ export function AgentThread({
           <SandboxStatus backendUrl={backendUrl} ownerId={sessionId} />
         </div>
         <div className="flex items-center gap-1">
+          <FilesButton count={files.count} disabled={!sessionId} onClick={() => setFilesOpen(true)} />
           <Button variant="ghost" size="icon" aria-label="Sandbox settings" onClick={onOpenSandboxSettings}>
             <Settings className="size-4" />
           </Button>
         </div>
       </header>
 
-      <AgentMessageList messages={messages} isRunning={isRunning} error={error} />
+      <AgentMessageList
+        messages={messages}
+        reasoningByMessageId={reasoningByMessageId}
+        isRunning={isRunning}
+        error={error}
+      />
 
       <Composer
-        disabled={isRunning || !sessionId}
+        disabled={isRunning || !sessionId || files.isProcessing}
         onSend={sendMessage}
         backendUrl={backendUrl}
         sessionId={sessionId}
-        onUploadingChange={handleUploadingChange}
+        onAddFiles={files.addFiles}
+        onFilesAdded={() => setFilesOpen(true)}
+      />
+
+      <FilesDrawer
+        backendUrl={backendUrl}
+        files={files}
+        session={session}
+        open={filesOpen}
+        onOpenChange={setFilesOpen}
       />
     </main>
   );

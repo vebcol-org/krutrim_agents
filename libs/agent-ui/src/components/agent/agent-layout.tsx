@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Agent } from '@krutrim_agent/shared-types';
 
-import { useAgentChat, useChat, useWorkspace } from '../../hooks';
+import { useAgentChat, useChat, useChatStream, useUrlSync, useWorkspace } from '../../hooks';
 import { clamp, deriveRenderPayload } from '../../utils';
 import { AgentThread } from '../agent-thread';
 import { SandboxSettingsPanel, type SandboxSettingsTarget } from '../sandbox-settings-panel';
@@ -31,6 +31,10 @@ export function AgentLayout({ backendUrl }: AgentProps) {
 
   const workspace = useWorkspace({ backendUrl });
   const chat = useChat({ backendUrl });
+  const chatStream = useChatStream({ backendUrl });
+
+  // Keeps the address bar in step with the open chat/agent + session.
+  useUrlSync({ workspace, chat });
 
   const allChats = [...workspace.standaloneChats, ...Object.values(workspace.chatsByProject).flat()];
   const activeChat = chat.activeChatId ? (allChats.find((c) => c.chat_id === chat.activeChatId) ?? null) : null;
@@ -90,6 +94,7 @@ export function AgentLayout({ backendUrl }: AgentProps) {
           sessionId={activeAgentSessionId}
           onOpenSandboxSettings={() => setSandboxSettingsOpen(true)}
           messages={agentChat.messages}
+          reasoningByMessageId={agentChat.reasoningByMessageId}
           isRunning={agentChat.isRunning}
           error={agentChat.error}
           sendMessage={agentChat.sendMessage}
@@ -100,13 +105,15 @@ export function AgentLayout({ backendUrl }: AgentProps) {
           activeChat={activeChat}
           sessions={chat.sessions}
           activeSessionId={chat.activeSessionId}
-          messages={chat.messages}
+          historySessionId={chat.historySessionId}
+          messages={chatStream.messages}
+          reasoningByMessageId={chatStream.reasoningByMessageId}
           isLoading={chat.isLoading}
-          isSending={chat.isSending}
-          error={chat.error}
+          isSending={chatStream.isRunning}
+          error={chat.error ?? chatStream.error}
           onSelectSession={chat.selectSession}
           onNewSession={chat.startNewSession}
-          onSend={chat.sendMessage}
+          onSend={chatStream.sendMessage}
           onOpenSandboxSettings={() => setSandboxSettingsOpen(true)}
           onEnsureSession={chat.ensureSession}
         />

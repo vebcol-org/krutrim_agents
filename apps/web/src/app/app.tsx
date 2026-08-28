@@ -8,7 +8,8 @@ export function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Agent backendUrl={backendUrl} />} />
+        {/* Catch-all: `<Agent>` owns URL <-> workspace sync internally (see `useUrlSync`). */}
+        <Route path="/*" element={<Agent backendUrl={backendUrl} />} />
       </Routes>
     </BrowserRouter>
   );

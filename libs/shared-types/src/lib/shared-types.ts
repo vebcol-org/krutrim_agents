@@ -279,6 +279,23 @@ export interface RagTextResponse {
   document_id: string;
 }
 
+/** One row from `GET /api/sessions/{session_id}/rag/documents` — a document that
+ * has been (or is being) ingested into this session's RAG index. Backs the
+ * composer's persistent attachment bar. */
+export interface RagDocument {
+  document_id: string;
+  title: string;
+  /** Original upload filename; `null` for pasted text. */
+  filename: string | null;
+  source_path: string;
+  kind: 'file' | 'text';
+  created_at: string;
+}
+
+export interface RagDocumentsResponse {
+  documents: RagDocument[];
+}
+
 /**
  * SSE payload shape from `GET /api/status/containers/{owner_id}` — mirrors
  * `krutrim_agent_sandbox.status_channel.publish_container_status`'s JSON. `extra`
@@ -310,27 +327,10 @@ export interface ChatModelOption {
   display_name: string;
 }
 
-/** One turn's worth of chat history, as stored/returned by the backend. */
+/** One turn's worth of chat history, as returned by `GET /api/sessions/{id}/messages`.
+ * `POST /api/chat` itself is now an AG-UI SSE stream (`@ag-ui/client`), not JSON —
+ * see `libs/agent-ui/src/hooks/use-chat-stream.ts`. */
 export interface ChatApiMessage {
   role: 'user' | 'assistant';
   content: string;
-}
-
-/** Body for `POST /api/chat`. Omit `chat_id`/`session_id` to auto-create either;
- * `project_id` (only consulted when `chat_id` is omitted) scopes the newly-created
- * chat to a project instead of leaving it standalone. */
-export interface SendChatMessageRequest {
-  message: string;
-  chat_id?: string | null;
-  session_id?: string | null;
-  project_id?: string | null;
-  chat_title?: string | null;
-  provider?: string | null;
-  model?: string | null;
-}
-
-export interface SendChatMessageResponse {
-  chat_id: string;
-  session_id: string;
-  message: ChatApiMessage;
 }

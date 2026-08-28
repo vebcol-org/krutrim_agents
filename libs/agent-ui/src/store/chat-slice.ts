@@ -1,26 +1,45 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { ChatApiMessage, SessionInfo } from '@krutrim_agent/shared-types';
 
-import { createChat, createChatSession, fetchChatSessions, fetchSessionMessages, sendChatMessage } from '../api';
+import { createChat, createChatSession, fetchChatSessions, fetchSessionMessages } from '../api';
 import { ApiError } from '../utils/http-client';
 import type { RootState } from './store';
 
 /**
- * The **active chat conversation** — messages, sessions of the currently
- * open chat, and the send/open flow. Chat *listing* (the sidebar tree) is
- * `workspace-slice.ts`'s job, not this one; the two are deliberately
- * decoupled (see that file's docstring) rather than one slice owning both.
+ * The **active chat conversation**'s sessions + loaded history, and the
+ * open/select flow. The *live send* is no longer here: `POST /api/chat` is an
+ * AG-UI SSE stream consumed by `useChatStream` (`../hooks/use-chat-stream.ts`),
+ * which owns the streaming message state and calls back into this slice via
+ * `chatSessionResolved` (ids created on the fly) and `openSession` (reload
+ * history once a turn completes). Chat *listing* (the sidebar tree) is
+ * `workspace-slice.ts`'s job.
+ *
+ * `activeSessionId` vs `historySessionId`: the switcher updates `activeSessionId`
+ * the instant you pick an entry (so the `<Select>` feels responsive), but the
+ * message stream + files drawer key off `historySessionId`, which only advances
+ * once that session's history has actually loaded. Keeping them separate stops
+ * the thread from rendering the *previous* session's messages against the *new*
+ * session's file list during the load (the "files and messages don't match"
+ * bug).
  */
 
 export interface ChatState {
   backendUrl: string;
   sessions: SessionInfo[];
   activeChatId: string | null;
+  /** The session the switcher currently points at — updated immediately on select. */
   activeSessionId: string | null;
+  /** The session `messages` actually belong to — advances only once that
+   * session's history has loaded. `useChatStream` / `useSessionFiles` key off
+   * this so the thread and the file list never show two different sessions. */
+  historySessionId: string | null;
+  /** History for `historySessionId`, loaded on open — the live turn streams on top of this. */
   messages: ChatApiMessage[];
   isLoading: boolean;
-  isSending: boolean;
   error: string | null;
+  /** Bumped by `startNewChat` / `createNewChatSession` so `useChatStream` can
+   * tell two successive "new…" actions apart and rebuild its `HttpAgent`. */
+  newChatNonce: number;
 }
 
 const initialState: ChatState = {
@@ -28,23 +47,25 @@ const initialState: ChatState = {
   sessions: [],
   activeChatId: null,
   activeSessionId: null,
+  historySessionId: null,
   messages: [],
   isLoading: false,
-  isSending: false,
   error: null,
+  newChatNonce: 0,
 };
 
+/** Oldest → newest. The switcher renders this reversed (newest on top) while
+ * still numbering "Session N" by this order, so N stays stable for a session
+ * as later ones are added. */
 function sortByCreatedAtAsc(sessions: SessionInfo[]): SessionInfo[] {
   return [...sessions].sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
-/**
- * Turns a thrown error into a user-displayable string: an `ApiError`'s
- * backend-provided `detail` when available (including `ApiSchemaError`,
- * which is an `Error` subclass carrying a precise "the backend response
- * didn't match what we expected" message — see `../utils/http-client.ts`),
- * else a generic fallback.
- */
+/** The session a freshly-opened chat should land on — the newest one. */
+function newestSessionId(ordered: SessionInfo[]): string | null {
+  return ordered.length ? ordered[ordered.length - 1].session_id : null;
+}
+
 function describeError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.detail;
   if (err instanceof Error) return err.message;
@@ -58,10 +79,18 @@ interface OpenChatResult {
   messages: ChatApiMessage[];
 }
 
-/** Selects a chat, opening its first (oldest) session if one exists — mirrors backend lazy session creation. */
-export const openChat = createAsyncThunk<OpenChatResult, string, { state: RootState; rejectValue: string }>(
+export interface OpenChatArg {
+  chatId: string;
+  /** Land on this specific session (e.g. from a deep link) instead of the newest.
+   * Ignored if the chat has no such session. */
+  sessionId?: string | null;
+}
+
+/** Selects a chat, opening the newest session if one exists (or the requested
+ * `sessionId`) — mirrors backend lazy session creation when there are none. */
+export const openChat = createAsyncThunk<OpenChatResult, OpenChatArg, { state: RootState; rejectValue: string }>(
   'chat/openChat',
-  async (chatId, { getState, rejectWithValue }) => {
+  async ({ chatId, sessionId: requested }, { getState, rejectWithValue }) => {
     const { backendUrl } = getState().chat;
     try {
       const sessionList = await fetchChatSessions(backendUrl, chatId);
@@ -69,7 +98,10 @@ export const openChat = createAsyncThunk<OpenChatResult, string, { state: RootSt
       if (ordered.length === 0) {
         return { chatId, sessions: ordered, sessionId: null, messages: [] };
       }
-      const sessionId = ordered[0].session_id;
+      const sessionId =
+        requested && ordered.some((s) => s.session_id === requested)
+          ? requested
+          : (newestSessionId(ordered) as string);
       const messages = await fetchSessionMessages(backendUrl, sessionId);
       return { chatId, sessions: ordered, sessionId, messages };
     } catch (err) {
@@ -97,52 +129,6 @@ export const openSession = createAsyncThunk<OpenSessionResult, string, { state: 
   },
 );
 
-interface PostMessageResult {
-  message: ChatApiMessage;
-  chatId: string;
-  sessionId: string;
-  sessions?: SessionInfo[];
-}
-
-export const postMessage = createAsyncThunk<PostMessageResult, string, { state: RootState; rejectValue: string }>(
-  'chat/postMessage',
-  async (trimmed, { getState, rejectWithValue }) => {
-    const { backendUrl, activeChatId, activeSessionId } = getState().chat;
-    try {
-      const response = await sendChatMessage(backendUrl, {
-        message: trimmed,
-        chat_id: activeChatId,
-        session_id: activeSessionId,
-      });
-
-      const chatChanged = response.chat_id !== activeChatId;
-      const sessionChanged = response.session_id !== activeSessionId;
-      // Note: if `chatChanged` (a brand-new chat was implicitly created by
-      // sending a message with no chat pre-selected), the sidebar tree
-      // (`workspace-slice.ts`) won't know about it until its next
-      // `fetchWorkspace()` — the two slices are deliberately decoupled, so
-      // this slice doesn't reach into that one to refresh it. A known,
-      // tolerable gap for this pass, same as other documented ones in
-      // this codebase (e.g. `SandboxSettingsPanel` not refreshing its
-      // parent's list after a save).
-
-      let sessions: SessionInfo[] | undefined;
-      if (chatChanged || sessionChanged) {
-        sessions = sortByCreatedAtAsc(await fetchChatSessions(backendUrl, response.chat_id));
-      }
-
-      return {
-        message: response.message,
-        chatId: response.chat_id,
-        sessionId: response.session_id,
-        sessions,
-      };
-    } catch (err) {
-      return rejectWithValue(describeError(err, 'Failed to send message.'));
-    }
-  },
-);
-
 interface EnsureSessionResult {
   chatId: string;
   sessionId: string;
@@ -157,10 +143,6 @@ interface EnsureSessionResult {
  * before a file attachment: RAG ingestion is a `POST /api/sessions/{id}/rag/file`
  * call, so it can't run against the backend's usual lazy-on-first-message
  * session. A no-op when a session already exists.
- *
- * Like `postMessage`, when this implicitly creates a chat the sidebar tree
- * (`workspace-slice.ts`) won't know about it until its next `fetchWorkspace()`
- * — the two slices stay decoupled; a tolerable, already-documented gap.
  */
 export const ensureChatSession = createAsyncThunk<
   EnsureSessionResult,
@@ -184,6 +166,62 @@ export const ensureChatSession = createAsyncThunk<
   }
 });
 
+interface SyncResolvedChatResult {
+  chatId: string;
+  sessionId: string;
+  sessions: SessionInfo[];
+  messages: ChatApiMessage[];
+}
+
+/**
+ * Called by `useChatStream` once a streamed turn finishes against a chat/session
+ * that was created on the fly: adopts the new ids and pulls the now-persisted
+ * history + session list so a later `HttpAgent` rebuild (or navigating away and
+ * back) sees the complete conversation.
+ */
+export const syncResolvedChat = createAsyncThunk<
+  SyncResolvedChatResult,
+  { chatId: string; sessionId: string },
+  { state: RootState; rejectValue: string }
+>('chat/syncResolvedChat', async ({ chatId, sessionId }, { getState, rejectWithValue }) => {
+  const { backendUrl } = getState().chat;
+  try {
+    const [messages, sessionList] = await Promise.all([
+      fetchSessionMessages(backendUrl, sessionId),
+      fetchChatSessions(backendUrl, chatId),
+    ]);
+    return { chatId, sessionId, sessions: sortByCreatedAtAsc(sessionList), messages };
+  } catch (err) {
+    return rejectWithValue(describeError(err, 'Failed to sync chat.'));
+  }
+});
+
+interface CreateSessionResult {
+  chatId: string;
+  session: SessionInfo;
+}
+
+/**
+ * The "+" (new session) button: creates a real session on the active chat
+ * immediately (`POST /api/chats/{chatId}/sessions`) and switches to it, rather
+ * than just blanking the thread and waiting for the first message. Keeps the
+ * switcher list and the backend in lock-step.
+ */
+export const createNewChatSession = createAsyncThunk<
+  CreateSessionResult,
+  void,
+  { state: RootState; rejectValue: string }
+>('chat/createNewChatSession', async (_arg, { getState, rejectWithValue }) => {
+  const { backendUrl, activeChatId } = getState().chat;
+  if (!activeChatId) return rejectWithValue('No active chat.');
+  try {
+    const session = await createChatSession(backendUrl, activeChatId);
+    return { chatId: activeChatId, session };
+  } catch (err) {
+    return rejectWithValue(describeError(err, 'Failed to create session.'));
+  }
+});
+
 const chatSlice = createSlice({
   name: 'chat',
   initialState,
@@ -194,15 +232,11 @@ const chatSlice = createSlice({
     startNewChat(state) {
       state.activeChatId = null;
       state.activeSessionId = null;
+      state.historySessionId = null;
       state.sessions = [];
       state.messages = [];
       state.error = null;
-    },
-    startNewSession(state) {
-      if (!state.activeChatId) return;
-      state.activeSessionId = null;
-      state.messages = [];
-      state.error = null;
+      state.newChatNonce += 1;
     },
   },
   extraReducers: (builder) => {
@@ -216,6 +250,7 @@ const chatSlice = createSlice({
         state.activeChatId = action.payload.chatId;
         state.sessions = action.payload.sessions;
         state.activeSessionId = action.payload.sessionId;
+        state.historySessionId = action.payload.sessionId;
         state.messages = action.payload.messages;
       })
       .addCase(openChat.rejected, (state, action) => {
@@ -226,10 +261,13 @@ const chatSlice = createSlice({
       .addCase(openSession.pending, (state, action) => {
         state.isLoading = true;
         state.error = null;
+        // Move the switcher's pointer now; `historySessionId` stays put until
+        // the history for `action.meta.arg` has actually loaded (fulfilled).
         state.activeSessionId = action.meta.arg;
       })
       .addCase(openSession.fulfilled, (state, action) => {
         state.isLoading = false;
+        state.historySessionId = action.payload.sessionId;
         state.messages = action.payload.messages;
       })
       .addCase(openSession.rejected, (state, action) => {
@@ -237,35 +275,51 @@ const chatSlice = createSlice({
         state.error = action.payload ?? action.error.message ?? 'Failed to open session.';
       })
 
-      .addCase(postMessage.pending, (state, action) => {
-        state.isSending = true;
-        state.error = null;
-        state.messages.push({ role: 'user', content: action.meta.arg });
-      })
-      .addCase(postMessage.fulfilled, (state, action) => {
-        state.isSending = false;
-        state.messages.push(action.payload.message);
+      .addCase(syncResolvedChat.fulfilled, (state, action) => {
+        state.isLoading = false;
         state.activeChatId = action.payload.chatId;
         state.activeSessionId = action.payload.sessionId;
-        if (action.payload.sessions) state.sessions = action.payload.sessions;
+        state.historySessionId = action.payload.sessionId;
+        state.sessions = action.payload.sessions;
+        state.messages = action.payload.messages;
       })
-      .addCase(postMessage.rejected, (state, action) => {
-        state.isSending = false;
-        state.error = action.payload ?? action.error.message ?? 'Failed to send message.';
+      .addCase(syncResolvedChat.rejected, (state, action) => {
+        state.error = action.payload ?? action.error.message ?? 'Failed to sync chat.';
       })
 
       .addCase(ensureChatSession.fulfilled, (state, action) => {
         state.activeChatId = action.payload.chatId;
         state.activeSessionId = action.payload.sessionId;
+        state.historySessionId = action.payload.sessionId;
         if (action.payload.session && !state.sessions.some((s) => s.session_id === action.payload.sessionId)) {
           state.sessions = sortByCreatedAtAsc([...state.sessions, action.payload.session]);
         }
       })
       .addCase(ensureChatSession.rejected, (state, action) => {
         state.error = action.payload ?? action.error.message ?? 'Failed to start a session.';
+      })
+
+      .addCase(createNewChatSession.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(createNewChatSession.fulfilled, (state, action) => {
+        state.isLoading = false;
+        const { session } = action.payload;
+        if (!state.sessions.some((s) => s.session_id === session.session_id)) {
+          state.sessions = sortByCreatedAtAsc([...state.sessions, session]);
+        }
+        state.activeSessionId = session.session_id;
+        state.historySessionId = session.session_id;
+        state.messages = [];
+        state.newChatNonce += 1;
+      })
+      .addCase(createNewChatSession.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload ?? action.error.message ?? 'Failed to create session.';
       });
   },
 });
 
-export const { setBackendUrl, startNewChat, startNewSession } = chatSlice.actions;
+export const { setBackendUrl, startNewChat } = chatSlice.actions;
 export default chatSlice.reducer;

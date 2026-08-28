@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import type { RagIngestJobProgressEvent } from '@krutrim_agent/shared-types';
 import { cn, Progress } from '@krutrim_agent/ui';
 import { FileText, X } from 'lucide-react';
 
-import { submitRagFile } from '../../api/sessions';
 import { useSseStatus } from '../../hooks/use-sse-status';
 
 const STAGE_LABEL: Record<'extracting' | 'chunking' | 'embedding' | 'indexing', string> = {
@@ -19,72 +18,55 @@ const STAGE_ORDER: Array<'extracting' | 'chunking' | 'embedding' | 'indexing'> =
   'indexing',
 ];
 
-export type RagFileStatus = 'processing' | 'done' | 'error';
+export type RagFileStatus = 'uploading' | 'processing' | 'done' | 'error';
 
 export interface RagFileRowProps {
   backendUrl: string;
-  sessionId: string;
-  file: File;
-  /** A stable id the parent assigned when this row was created (before the
-   * backend's `document_id` exists) — used as the tracking key so the
-   * parent can compute "is anything still processing" from the very first
-   * render, not only once upload has succeeded. */
   rowId: string;
-  onStatusChange: (rowId: string, status: RagFileStatus) => void;
+  fileName: string;
+  /** `null` until the upload POST has returned a job id. */
+  jobId: string | null;
+  /** Upload/ingest status owned by `useSessionFiles` — this row never uploads itself. */
+  status: RagFileStatus;
+  errorText?: string;
+  /** Fires once the ingestion job reaches a terminal state, so the owner can
+   * refetch the manifest / drop this pending row. */
+  onIngest: (rowId: string, status: 'done' | 'error') => void;
   onRemove: () => void;
 }
 
 /**
- * A Claude/ChatGPT-style attachment chip for one uploaded file — owns its
- * own `submitRagFile` call and `useSseStatus` subscription, matching React's
- * usual "one hook instance per list item via sub-component" idiom rather
- * than trying to fan a single hook out across N files manually.
+ * Presentational row for one in-flight RAG upload: filename + a stage progress
+ * bar driven by the ingestion job's SSE stream. The actual `POST /rag/file` is
+ * done once, up in `useSessionFiles` — doing it here made React StrictMode (and
+ * any remount, e.g. the files drawer closing/reopening) fire a duplicate upload.
  */
-export function RagFileRow({ backendUrl, sessionId, file, rowId, onStatusChange, onRemove }: RagFileRowProps) {
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
+export function RagFileRow({ backendUrl, rowId, fileName, jobId, status, errorText, onIngest, onRemove }: RagFileRowProps) {
   const progress = useSseStatus<RagIngestJobProgressEvent>(jobId ? `${backendUrl}/api/status/jobs/${jobId}` : null);
 
-  useEffect(() => {
-    let cancelled = false;
-    submitRagFile(backendUrl, sessionId, file)
-      .then((response) => {
-        if (!cancelled) setJobId(response.job_id);
-      })
-      .catch((err) => {
-        if (!cancelled) setSubmitError(err instanceof Error ? err.message : 'Failed to upload.');
-      });
-    return () => {
-      cancelled = true;
-    };
-    // Submit exactly once per mounted row — one row per selected file, and
-    // `file`/`sessionId`/`backendUrl` don't change across this row's lifetime.
-  }, []);
-
-  const isError = submitError != null || progress?.stage === 'error';
+  const isError = status === 'error' || progress?.stage === 'error';
   const stageIndex = progress && progress.stage !== 'error' ? STAGE_ORDER.indexOf(progress.stage) : -1;
   const stageFraction = progress && progress.total ? (progress.processed ?? 0) / progress.total : 0;
   const isDone = !isError && stageIndex === STAGE_ORDER.length - 1 && stageFraction >= 1;
-  const status: RagFileStatus = isError ? 'error' : isDone ? 'done' : 'processing';
 
   useEffect(() => {
-    onStatusChange(rowId, status);
-    // `onStatusChange` deliberately excluded: it's a new closure each parent
-    // render, and including it here would re-fire this effect (and thus the
-    // parent's state update) every render instead of only on real status change.
-  }, [rowId, status]);
+    if (isDone) onIngest(rowId, 'done');
+    else if (progress?.stage === 'error') onIngest(rowId, 'error');
+    // `onIngest` deliberately excluded from deps: it's a new closure each parent
+    // render, and including it would re-fire this every render rather than only
+    // on a real terminal state.
+  }, [rowId, isDone, progress?.stage]);
 
   const label = isError
-    ? (submitError ?? progress?.error ?? 'Failed to process.')
-    : progress && progress.stage !== 'error'
-      ? STAGE_LABEL[progress.stage]
-      : jobId
-        ? 'Queued…'
-        : 'Uploading…';
+    ? (errorText ?? progress?.error ?? 'Failed to process.')
+    : status === 'uploading'
+      ? 'Uploading…'
+      : progress && progress.stage !== 'error'
+        ? STAGE_LABEL[progress.stage]
+        : 'Queued…';
 
   return (
-    <div className="flex w-56 shrink-0 flex-col gap-1 rounded-lg border border-border bg-muted/30 p-2">
+    <div className="flex w-full flex-col gap-1 rounded-lg border border-border bg-muted/30 p-2">
       <div className="flex items-center gap-2">
         <div
           className={cn(
@@ -95,13 +77,13 @@ export function RagFileRow({ backendUrl, sessionId, file, rowId, onStatusChange,
           <FileText className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-mono">{file.name}</p>
+          <p className="truncate text-xs font-mono">{fileName}</p>
           <p className={cn('truncate text-[10px]', isError ? 'text-destructive' : 'text-muted-foreground')}>{label}</p>
         </div>
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Remove ${file.name}`}
+          aria-label={`Remove ${fileName}`}
           className="shrink-0 text-muted-foreground hover:text-foreground"
         >
           <X className="size-3.5" />

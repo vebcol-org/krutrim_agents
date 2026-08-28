@@ -1,7 +1,7 @@
 import type { Message } from '@ag-ui/client';
 import type { RenderContentPayload } from '@krutrim_agent/shared-types';
 
-import { messageText } from '../hooks/use-agent-chat';
+import { messageText } from '../hooks/use-agent-stream';
 
 /**
  * Derives the canvas payload from a live AG-UI message list — the last

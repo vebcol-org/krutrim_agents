@@ -9,8 +9,9 @@ import type {
   ModelSettings,
   Project,
   ProviderSettingsByRole,
+  RagDocument,
+  RagDocumentsResponse,
   RagTextResponse,
-  SendChatMessageResponse,
   SessionInfo,
   UpdateSettingsResponse,
 } from '@krutrim_agent/shared-types';
@@ -111,14 +112,6 @@ export const chatApiMessageSchema: z.ZodType<ChatApiMessage> = z
   })
   .strict();
 
-export const sendChatMessageResponseSchema: z.ZodType<SendChatMessageResponse> = z
-  .object({
-    chat_id: z.string(),
-    session_id: z.string(),
-    message: chatApiMessageSchema,
-  })
-  .strict();
-
 export const sessionMessagesResponseSchema: z.ZodType<{ messages: ChatApiMessage[] }> = z
   .object({ messages: z.array(chatApiMessageSchema) })
   .strict();
@@ -139,6 +132,21 @@ export const ragTextResponseSchema: z.ZodType<RagTextResponse> = z
     job_id: z.string(),
     document_id: z.string(),
   })
+  .strict();
+
+export const ragDocumentSchema: z.ZodType<RagDocument> = z
+  .object({
+    document_id: z.string(),
+    title: z.string(),
+    filename: z.string().nullable(),
+    source_path: z.string(),
+    kind: z.enum(['file', 'text']),
+    created_at: z.string(),
+  })
+  .strict();
+
+export const ragDocumentsResponseSchema: z.ZodType<RagDocumentsResponse> = z
+  .object({ documents: z.array(ragDocumentSchema) })
   .strict();
 
 const baseModelSettingsShape = {
