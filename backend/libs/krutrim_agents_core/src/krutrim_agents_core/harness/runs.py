@@ -10,19 +10,30 @@ from __future__ import annotations
 import json
 import threading
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from krutrim_agent_management.config import settings
 
 
 class RunLogger:
-    def __init__(self, agent_key: str, thread_id: str) -> None:
+    def __init__(
+        self, agent_key: str, thread_id: str, *, path: Path | None = None
+    ) -> None:
         self._agent_key = agent_key
         self._thread_id = thread_id
         self._lock = threading.Lock()
-        run_dir = settings.runs_dir / agent_key
-        run_dir.mkdir(parents=True, exist_ok=True)
-        self._path = run_dir / f"{thread_id}.jsonl"
+        # `path` overrides the default `runs_dir/<agent_key>/<thread>.jsonl`
+        # layout — the in-sandbox runtime points it straight at
+        # `out/runs/<thread>.jsonl` so `Storage.import_scope`'s flat
+        # `out/runs/*.jsonl` glob folds it back into the session dir.
+        if path is not None:
+            self._path = Path(path)
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            run_dir = settings.runs_dir / agent_key
+            run_dir.mkdir(parents=True, exist_ok=True)
+            self._path = run_dir / f"{thread_id}.jsonl"
 
     def log(self, event_type: str, payload: dict[str, Any]) -> None:
         record = {

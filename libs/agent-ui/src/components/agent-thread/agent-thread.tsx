@@ -5,7 +5,7 @@ import { Badge, Button } from '@krutrim_agent/ui';
 import { Settings } from 'lucide-react';
 
 import { fetchSession } from '../../api';
-import type { ReasoningEntry } from '../../hooks/use-agent-stream';
+import type { TraceStep } from '../../hooks/use-agent-stream';
 import { useBlurStatusTitle } from '../../hooks/use-blur-status-title';
 import { useSessionFiles } from '../../hooks/use-session-files';
 import { FilesButton, FilesDrawer } from '../agent/files-drawer';
@@ -25,10 +25,14 @@ export interface AgentThreadProps {
   /** Lifted to `AgentLayout` (via `useAgentChat`) so `OutputPanel`, a sibling,
    * can derive its canvas payload from the same live message list. */
   messages: Message[];
-  reasoningByMessageId: Record<string, ReasoningEntry>;
+  /** Live step / tool-call / reasoning trace — feeds the `AgentActivity` block. */
+  trace: TraceStep[];
   isRunning: boolean;
   error: string | null;
   sendMessage: (text: string) => void;
+  /** Cancels the in-flight turn (aborts the SSE stream and asks the server to
+   * interrupt an in-sandbox run). */
+  onStop: () => void;
 }
 
 /** Live counterpart to `../agent/chat-thread.tsx`, for the `Agent` (AG-UI/streaming) flow. */
@@ -38,10 +42,11 @@ export function AgentThread({
   sessionId,
   onOpenSandboxSettings,
   messages,
-  reasoningByMessageId,
+  trace,
   isRunning,
   error,
   sendMessage,
+  onStop,
 }: AgentThreadProps) {
   const files = useSessionFiles({ backendUrl, sessionId });
   const [filesOpen, setFilesOpen] = useState(false);
@@ -101,13 +106,15 @@ export function AgentThread({
 
       <AgentMessageList
         messages={messages}
-        reasoningByMessageId={reasoningByMessageId}
+        trace={trace}
         isRunning={isRunning}
         error={error}
       />
 
       <Composer
         disabled={isRunning || !sessionId || files.isProcessing}
+        isRunning={isRunning}
+        onStop={onStop}
         onSend={sendMessage}
         backendUrl={backendUrl}
         sessionId={sessionId}

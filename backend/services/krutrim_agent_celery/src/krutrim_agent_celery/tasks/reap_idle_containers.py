@@ -16,8 +16,10 @@ the thin Celery-task wrapper that supplies real dependencies.
 from __future__ import annotations
 
 import asyncio
+import shutil
 from collections.abc import Callable
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from deepagents.backends.sandbox import BaseSandbox
@@ -140,22 +142,33 @@ async def reap_idle_containers_once(
             else SandboxPolicy()
         )
         backend = backend_factory(record.owner_id, policy)
+        in_sandbox = (record.policy_snapshot or {}).get("run_mode") == "in-sandbox"
+        staging_dir = Path(settings.storage_root) / "sandboxes" / record.owner_id
         try:
-            files = _download_workspace_files(backend)
-            if files:
-                # `record.owner_id` is a session_id for every kind this reaper
-                # currently produces work for ("channel" is skipped above;
-                # "project" is reserved and unused — see ContainerRecord's
-                # docstring). An explicitly-attached session sharing this same
-                # container isn't synced into its own separate workspace
-                # mirror here — revisit once that feature actually creates
-                # such sessions.
-                await store.sync_workspace_from_container(record.owner_id, files)
+            if in_sandbox:
+                # The staging dir is bind-mounted — read the container's
+                # workspace / checkpoint / run logs straight off disk rather
+                # than piping them through a base64 `execute()`.
+                if staging_dir.exists():
+                    await store.import_scope(record.owner_id, staging_dir)
+            else:
+                files = _download_workspace_files(backend)
+                if files:
+                    # `record.owner_id` is a session_id for every kind this
+                    # reaper currently produces work for ("channel" is skipped
+                    # above; "project" is reserved and unused — see
+                    # ContainerRecord's docstring). An explicitly-attached
+                    # session sharing this same container isn't synced into its
+                    # own separate workspace mirror here — revisit once that
+                    # feature actually creates such sessions.
+                    await store.sync_workspace_from_container(record.owner_id, files)
             close = getattr(backend, "close", None)
             if callable(close):
                 close()
         finally:
             await store.delete_container(record.owner_id)
+            if in_sandbox and staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
             _publish_safe(pubsub, record.owner_id, "stopped")
         logger.info("reap_idle_containers: torn down idle container for {}", record.owner_id)
         reaped.append(record.owner_id)

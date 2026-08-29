@@ -42,6 +42,19 @@ def _load_format_spec() -> str:
     return _FORMAT_SPEC_PATH.read_text(encoding="utf-8").strip()
 
 
+# `promptstore`'s PromptRegistry rejects any *rendered value* that still contains
+# a raw `{` / `}` (a template-injection guard). Every variable we feed `core` is
+# dynamic free text — a conversation summary that quotes tool-call JSON, the
+# agent's own markdown scratchpads, tool descriptions — so "no braces" can't be
+# assumed. Swap them for full-width look-alikes: accepted by the registry, still
+# perfectly legible to the model.
+_BRACE_SUBS = str.maketrans({"{": "｛", "}": "｝"})
+
+
+def _sanitize(value: str) -> str:
+    return value.translate(_BRACE_SUBS)
+
+
 def render_system_prompt(
     *,
     user_request: str,
@@ -63,12 +76,12 @@ def render_system_prompt(
         children={
             "core": {
                 "variables": {
-                    "user_request": user_request,
-                    "conversation_context": conversation_context,
-                    "research_state": research_state,
-                    "known_information": known_information,
-                    "unknown_information": unknown_information,
-                    "available_tools": available_tools,
+                    "user_request": _sanitize(user_request),
+                    "conversation_context": _sanitize(conversation_context),
+                    "research_state": _sanitize(research_state),
+                    "known_information": _sanitize(known_information),
+                    "unknown_information": _sanitize(unknown_information),
+                    "available_tools": _sanitize(available_tools),
                 }
             },
             "control_flow": {},

@@ -83,7 +83,7 @@ async def test_list_agents_scoped_to_project(tmp_path):
     project_b = await storage.create_project("B")
     await storage.create_agent(project_a.project_id, "research", "A1")
     await storage.create_agent(project_a.project_id, "research", "A2")
-    await storage.create_agent(project_b.project_id, "trading", "B1")
+    await storage.create_agent(project_b.project_id, "experiment", "B1")
 
     assert {
         a.display_name for a in await storage.list_agents(project_a.project_id)

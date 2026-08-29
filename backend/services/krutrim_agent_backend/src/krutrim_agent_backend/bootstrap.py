@@ -49,6 +49,11 @@ async def build_app_state(settings: AppSettings) -> AppState:
         store=storage,
         policy_factory=lambda _owner_id: SandboxPolicy(image=settings.sandbox_image),
         pubsub=RedisPubSubBackend(settings.redis_url),
+        provider_store=provider_store,
+        # Profiles listed in settings.in_sandbox_agent_profiles (research) run
+        # their whole graph inside the container over gRPC; every other profile
+        # keeps the in-process tool-backend path.
+        enable_in_sandbox=True,
     )
     return AppState(
         provider_store=provider_store,

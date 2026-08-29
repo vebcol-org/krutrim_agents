@@ -926,6 +926,143 @@ class _LocalStorageImpl:
         for path, content in files:
             self._blobs.write(f"{prefix}/{path}", content)
 
+    # -- per-run scoped export / import (in-sandbox agent runtime) ---------
+
+    @staticmethod
+    def _copy_scoped_row(
+        src_db: Path, dst_db: Path, table: str, id_col: str, id_val: str
+    ) -> None:
+        """Copy exactly one row (matched on `id_col`) between two sqlite files
+        of the same schema. `table`/`id_col` are module-internal constants, not
+        caller input."""
+        with _LocalStorageImpl._connect(src_db) as src:
+            row = src.execute(
+                f"SELECT * FROM {table} WHERE {id_col} = ?", (id_val,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"{table}.{id_col}={id_val!r} not found for scope export")
+        cols = list(row.keys())
+        collist = ", ".join(cols)
+        placeholders = ", ".join("?" for _ in cols)
+        with _LocalStorageImpl._connect(dst_db) as dst:
+            dst.execute(
+                f"INSERT OR REPLACE INTO {table} ({collist}) VALUES ({placeholders})",
+                tuple(row[c] for c in cols),
+            )
+
+    def export_scope(
+        self, project_id: str, agent_id: str, session_id: str, staging_dir: Path
+    ) -> None:
+        self.get_project(project_id)  # KeyError if unknown
+        agent = self.get_agent(agent_id)
+        session = self.get_session(session_id)
+        if agent.project_id != project_id:
+            raise KeyError(
+                f"Agent {agent_id!r} is not in project {project_id!r} — refusing scope export"
+            )
+        if session.owner_type != "agent" or session.owner_id != agent_id:
+            raise KeyError(
+                f"Session {session_id!r} does not belong to agent {agent_id!r} — refusing scope export"
+            )
+
+        staging_dir = Path(staging_dir)
+        store_root = staging_dir / "store"
+        workspace_dir = staging_dir / "workspace"
+        out_dir = staging_dir / "out"
+        for d in (store_root, workspace_dir, out_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        dest = _LocalStorageImpl(store_root)  # writes the empty schema
+
+        self._copy_scoped_row(
+            self._project_db_path, dest._project_db_path, "projects", "project_id", project_id
+        )
+        self._copy_scoped_row(
+            self._agents_db_path, dest._agents_db_path, "agents", "agent_id", agent_id
+        )
+        self._copy_scoped_row(
+            self._sessions_db_path,
+            dest._sessions_db_path,
+            "sessions",
+            "session_id",
+            session_id,
+        )
+
+        # Session blob subtree (checkpointer.json, usage.json, rag/,
+        # langgraph_checkpoint.sqlite) — everything under sessions/<id>/ EXCEPT
+        # the workspace mirror, which is exposed separately as a real dir the
+        # container mounts at /workspace.
+        src_session_dir = self.session_dir(session_id)
+        dest_session_dir = dest.session_dir(session_id)
+        dest_session_dir.mkdir(parents=True, exist_ok=True)
+        if src_session_dir.exists():
+            for item in src_session_dir.iterdir():
+                if item.name == "workspace":
+                    continue
+                target = dest_session_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(item, target, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, target)
+
+        src_workspace = src_session_dir / "workspace"
+        if src_workspace.exists():
+            shutil.copytree(src_workspace, workspace_dir, dirs_exist_ok=True)
+
+        memory = self._blobs.read(self._memory_key(project_id))
+        if memory is not None:
+            dest._blobs.write(dest._memory_key(project_id), memory)
+
+    def import_scope(self, session_id: str, staging_dir: Path) -> None:
+        self.get_session(session_id)  # KeyError if unknown
+        staging_dir = Path(staging_dir)
+        workspace_dir = staging_dir / "workspace"
+        out_dir = staging_dir / "out"
+        session_dir = self.session_dir(session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        if workspace_dir.exists():
+            files = [
+                (str(p.relative_to(workspace_dir)), p.read_bytes())
+                for p in workspace_dir.rglob("*")
+                if p.is_file()
+            ]
+            if files:
+                self.sync_workspace_from_container(session_id, files)
+
+        if not out_dir.exists():
+            return
+
+        checkpoint = out_dir / "langgraph_checkpoint.sqlite"
+        if checkpoint.is_file():
+            shutil.copy2(checkpoint, session_dir / "langgraph_checkpoint.sqlite")
+
+        usage = out_dir / "usage.json"
+        if usage.is_file():
+            self._blobs.write(self._usage_key(session_id), usage.read_bytes())
+
+        rag_manifest = out_dir / "rag" / "manifest.json"
+        if rag_manifest.is_file():
+            self._blobs.write(self._rag_manifest_key(session_id), rag_manifest.read_bytes())
+
+        runs_dir = out_dir / "runs"
+        if runs_dir.is_dir():
+            dest_runs = session_dir / "runs"
+            dest_runs.mkdir(parents=True, exist_ok=True)
+            for jsonl in runs_dir.glob("*.jsonl"):
+                dest = dest_runs / jsonl.name
+                if dest.exists() and dest.stat().st_size:
+                    # The host's HostBridge already wrote its own lines to this
+                    # file during the run (every LLM / host-tool call). The
+                    # container's copy carries the in-graph + structural lines.
+                    # Append rather than overwrite so neither side is lost.
+                    existing = dest.read_bytes()
+                    sep = b"" if existing.endswith(b"\n") else b"\n"
+                    with dest.open("ab") as out:
+                        out.write(sep + jsonl.read_bytes())
+                else:
+                    shutil.copy2(jsonl, dest)
+
 
 class LocalStorage(Storage):
     """Async `Storage` implementation; each method dispatches to a worker thread running
@@ -1206,6 +1343,24 @@ class LocalStorage(Storage):
     ) -> None:
         return await asyncio.to_thread(
             self._impl.sync_workspace_from_container, session_id, files
+        )
+
+    # -- per-run scoped export / import (in-sandbox agent runtime) ---------
+
+    async def export_scope(
+        self,
+        project_id: str,
+        agent_id: str,
+        session_id: str,
+        staging_dir: Path,
+    ) -> None:
+        return await asyncio.to_thread(
+            self._impl.export_scope, project_id, agent_id, session_id, staging_dir
+        )
+
+    async def import_scope(self, session_id: str, staging_dir: Path) -> None:
+        return await asyncio.to_thread(
+            self._impl.import_scope, session_id, staging_dir
         )
 
 

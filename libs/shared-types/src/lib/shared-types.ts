@@ -7,7 +7,7 @@
 export const AGENT_ENDPOINT_PREFIX = '/agents';
 export const DEFAULT_BACKEND_URL = 'http://localhost:8000';
 
-/** Which agent type is active — read from this query param, e.g. `?agent=trading`. */
+/** Which agent type is active — read from this query param, e.g. `?agent=research`. */
 export const AGENT_QUERY_PARAM = 'agent';
 export const DEFAULT_AGENT_KEY = 'research';
 

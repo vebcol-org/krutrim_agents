@@ -1,7 +1,7 @@
 [project]
 name = "krutrim-agents"
 version = "0.1.0"
-description = "Agent profile content (research/sales/trading/experiment) — prompts, roles, and tool wiring per agent type. Plugin content only; the lifecycle/discovery engine lives in krutrim-agents-core."
+description = "Agent profile content (research/experiment) — prompts, roles, and tool wiring per agent type. Plugin content only; the lifecycle/discovery engine lives in krutrim-agents-core."
 requires-python = ">=3.11"
 dependencies = [
     "deepagents>=0.7.0",

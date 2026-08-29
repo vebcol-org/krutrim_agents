@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Agent } from '@krutrim_agent/shared-types';
 
-import { useAgentChat, useChat, useChatStream, useUrlSync, useWorkspace } from '../../hooks';
+import { useAgentChat, useAgentHistory, useChat, useChatStream, useUrlSync, useWorkspace } from '../../hooks';
 import { clamp, deriveRenderPayload } from '../../utils';
 import { AgentThread } from '../agent-thread';
 import { SandboxSettingsPanel, type SandboxSettingsTarget } from '../sandbox-settings-panel';
@@ -56,14 +56,42 @@ export function AgentLayout({ backendUrl }: AgentProps) {
   const activeSession = chat.sessions.find((s) => s.session_id === chat.activeSessionId) ?? null;
 
   const activeAgentSessionId = selection?.kind === 'agent' ? selection.sessionId : null;
+  // The Agent flow is a pure live stream with no store-backed history, so on a
+  // page refresh the message list starts empty — load the persisted turns and
+  // seed the stream with them (see `useAgentHistory`).
+  const agentHistory = useAgentHistory({
+    backendUrl,
+    sessionId: activeAgent ? activeAgentSessionId : null,
+  });
+  // Only bind the streaming client once history for THIS session has loaded: the
+  // internal `HttpAgent` is memoised on `sessionId` and seeded once, so binding
+  // early would build it empty and ignore the late history.
+  const historyReady =
+    !!activeAgent && !!activeAgentSessionId && agentHistory.loadedSessionId === activeAgentSessionId;
   // Lifted here (rather than inside `AgentThread`) so `OutputPanel`, a
   // sibling, can derive its canvas payload from the same live message list.
   const agentChat = useAgentChat({
     backendUrl,
     agentId: activeAgent?.agent_id ?? '',
-    sessionId: activeAgent ? activeAgentSessionId : null,
+    sessionId: historyReady ? activeAgentSessionId : null,
+    initialMessages: agentHistory.messages,
   });
   const outputPayload = activeAgent ? deriveRenderPayload(agentChat.messages, activeAgent.display_name) : null;
+
+  // Reveal the output explorer automatically the moment a run finishes with a
+  // final answer — mirrors Claude popping its artifact panel open. Never
+  // auto-closes; a manual toggle afterwards is respected.
+  const wasRunningRef = useRef(false);
+  useEffect(() => {
+    const justFinished = wasRunningRef.current && !agentChat.isRunning;
+    wasRunningRef.current = agentChat.isRunning;
+    if (justFinished && outputPayload) setOutputCollapsed(false);
+  }, [agentChat.isRunning, outputPayload]);
+
+  // A fresh session starts with the explorer tucked away again.
+  useEffect(() => {
+    setOutputCollapsed(true);
+  }, [activeAgentSessionId]);
 
   // Agent-owned session details aren't tracked here yet (the AG-UI client that will actually
   // need them is a later pass) — so an Agent's sandbox settings only cover its own
@@ -94,10 +122,11 @@ export function AgentLayout({ backendUrl }: AgentProps) {
           sessionId={activeAgentSessionId}
           onOpenSandboxSettings={() => setSandboxSettingsOpen(true)}
           messages={agentChat.messages}
-          reasoningByMessageId={agentChat.reasoningByMessageId}
+          trace={agentChat.trace}
           isRunning={agentChat.isRunning}
           error={agentChat.error}
           sendMessage={agentChat.sendMessage}
+          onStop={agentChat.stop}
         />
       ) : (
         <ChatThread
@@ -131,7 +160,7 @@ export function AgentLayout({ backendUrl }: AgentProps) {
         width={outputWidth}
         agentKey={activeAgent?.agent_key ?? null}
         payload={outputPayload}
-        trace={agentChat.trace}
+        busy={agentChat.isRunning}
       />
 
       {sandboxSettingsOpen && sandboxTarget && (

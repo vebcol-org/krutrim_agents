@@ -1,6 +1,6 @@
 """Bridges frontend-declared AG-UI tools into the model's tool list.
 
-Our AG-UI stream translator (`krutrim_agent_backend.agui.run_graph_as_agui`)
+Our AG-UI stream translator (`krutrim_agent_agui.run_graph_as_agui`)
 seeds `state["tools"]` from the tools the frontend declared for this run
 (`RunAgentInput.tools`) when it builds the graph input. This middleware does the
 two things needed to make those tools actually usable:

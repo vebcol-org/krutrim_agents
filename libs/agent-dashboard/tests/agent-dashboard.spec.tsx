@@ -21,7 +21,7 @@ function StubChart({ chart, rows }: ChartComponentProps) {
 function makeWorkbook(): AgentDashboardWorkbook {
   return {
     workbookId: 'wb1',
-    agentType: 'sales',
+    agentType: 'research',
     dataSources: [
       {
         id: 'deals',

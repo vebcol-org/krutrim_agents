@@ -76,7 +76,11 @@ services:
         required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
-      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      # Identity path: matches the host bind-mount target below so sandbox
+      # bind sources (derived from STORAGE_ROOT) resolve on the *host* Docker
+      # daemon that backend drives over the mounted socket — not a /data that
+      # only exists inside this container.
+      KRUTRIM_AGENT_STORAGE_ROOT: ${HOME}/.krutrim_agent
       KRUTRIM_AGENT_DEV_MODE: 'true'
       OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
@@ -93,7 +97,7 @@ services:
       # at /opt/venv (UV_PROJECT_ENVIRONMENT), OUTSIDE /app, so it is not
       # shadowed by this and survives across edits.
       - ../backend:/app
-      - ${HOME}/.krutrim_agent:/data
+      - ${HOME}/.krutrim_agent:${HOME}/.krutrim_agent
     depends_on:
       redis:
         condition: service_started
@@ -115,7 +119,8 @@ services:
         required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
-      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      # Identity path — same reasoning as `backend` above.
+      KRUTRIM_AGENT_STORAGE_ROOT: ${HOME}/.krutrim_agent
       KRUTRIM_AGENT_DEV_MODE: 'true'
       OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
@@ -123,7 +128,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ../backend:/app
-      - ${HOME}/.krutrim_agent:/data
+      - ${HOME}/.krutrim_agent:${HOME}/.krutrim_agent
     depends_on:
       redis:
         condition: service_started

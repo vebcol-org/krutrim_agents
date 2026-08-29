@@ -1,10 +1,10 @@
 """The contract every agent profile fills in.
 
-An `AgentProfile` fully describes one pluggable agent type (research,
-trading, sales, ...). Profiles are discovered automatically by
-`registry.py` from `krutrim_agents/profiles/*` — nothing outside a profile's own
-package needs to change to add one. This module defines the *shape*; it
-never references a specific profile.
+An `AgentProfile` fully describes one pluggable agent type (research, ...).
+Profiles are discovered automatically by `registry.py` from
+`krutrim_agents/profiles/*` — nothing outside a profile's own package needs to
+change to add one. This module defines the *shape*; it never references a
+specific profile.
 """
 
 from __future__ import annotations

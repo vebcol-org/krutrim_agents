@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from ag_ui.core import CustomEvent, EventType
 from ag_ui.core.types import RunAgentInput
-from krutrim_agent_backend.agui import PluginBase, run_graph_as_agui
+from krutrim_agent_agui import PluginBase, run_graph_as_agui
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 

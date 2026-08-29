@@ -40,7 +40,7 @@ export interface WorkspaceState {
   agentsByProject: Record<string, Agent[]>;
   chatsByProject: Record<string, Chat[]>;
   standaloneChats: Chat[];
-  /** Registered agent *profiles* (research/trading/experiment/...) — populates the New Agent picker. */
+  /** Registered agent *profiles* (research/experiment/...) — populates the New Agent picker. */
   agentProfiles: AgentMeta[];
   expandedProjectIds: string[];
   selection: WorkspaceSelection | null;

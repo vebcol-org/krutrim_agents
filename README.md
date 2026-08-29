@@ -1,6 +1,6 @@
 # Krutrim Agent
 
-A pluggable multi-agent-type platform: a LangGraph + [deepagents](https://docs.langchain.com/oss/python/deepagents/overview) backend (Python) hosting several independent agent "profiles" (research, trading, sales — add more without touching core code), talking directly to a pure-React frontend (web app and Tauri desktop app) over the AG-UI protocol via `@ag-ui/client`'s `HttpAgent` — no intermediary runtime process. Chat lives in a left pane; the agent's finished output renders in a right-hand canvas, using whichever agent type is selected via `?agent=<key>` in the URL.
+A pluggable multi-agent-type platform: a LangGraph + [deepagents](https://docs.langchain.com/oss/python/deepagents/overview) backend (Python) hosting independent agent "profiles" (this pass ships `research`; more can be added without touching core code), talking directly to a pure-React frontend (web app and Tauri desktop app) over the AG-UI protocol via `@ag-ui/client`'s `HttpAgent` — no intermediary runtime process. Chat lives in a left pane; the agent's finished output renders in a right-hand canvas, using whichever agent type is selected via `?agent=<key>` in the URL.
 
 ## Architecture
 
@@ -19,7 +19,7 @@ apps/desktop (Tauri+Rust+TS) ─┘  (same React renderer as apps/web, wrapped i
                                       └─ /api/health
                                                        │
                                        krutrim_agents_core/ (libs/krutrim_agents_core)
-                                    registry.py auto-discovers krutrim_agents/profiles/{research,trading,sales}/*
+                                    registry.py auto-discovers krutrim_agents/profiles/{research,...}/*
                                                        │
                                              ┌─────────┴──────────┐
                                              ▼                    ▼
@@ -100,7 +100,7 @@ cp .env.example .env   # then fill in OPENROUTER_API_KEY — one shared file, se
 
 cd backend
 uv sync
-docker build -f ../docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest ..
+docker build -f ../docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest .
 cd ..
 ```
 
@@ -126,13 +126,13 @@ pnpm run web          # apps/web, http://localhost:4200
 pnpm exec nx run desktop:serve   # runs `tauri dev`: starts the Vite renderer, opens a native window
 ```
 
-Open `http://localhost:4200/?agent=research` (or `trading`, or `sales`) — the URL picks which agent you're talking to; omitting `?agent=` defaults to `research`. The Settings (⚙) button in the chat header edits that agent's per-role provider/model config against `/api/providers/{agent}` — **changes take effect on the next backend restart**, there's no hot-reload of the compiled graphs in this v1.
+Open `http://localhost:4200/?agent=research` — the URL picks which agent you're talking to; omitting `?agent=` defaults to `research`. The Settings (⚙) button in the chat header edits that agent's per-role provider/model config against `/api/providers/{agent}` — **changes take effect on the next backend restart**, there's no hot-reload of the compiled graphs in this v1.
 
 ## Agent profiles shipped in this pass
 
 - **`research`** — general-purpose research: gathers, critiques, and reports on any topic. Roles: `main`, `researcher`, `critic`, `writer`.
-- **`trading`** — trading/market research analysis (tickers, sectors, trade ideas). Same four roles; has its own custom canvas renderer (`libs/agent-renderers/src/trading/`) that keeps a persistent "not financial advice" footer and can render numeric series as a chart.
-- **`sales`** — prospect research + outreach drafting. Only three roles (`main`, `researcher`, `writer`, no `critic`) — deliberately different from the other two, to prove a profile can shape its own role set.
+
+More profiles (e.g. trading, sales) are planned; the plugin architecture is designed so they drop in without touching core code — see "Adding a new agent type" below.
 
 ## LLM providers
 
@@ -153,7 +153,7 @@ Every filesystem operation and shell command an agent runs happens inside a lock
 - **Fixed resource limits** (memory/CPU/pids) and a **hard wall-clock timeout** per command, enforced via `timeout` inside the container.
 - The policy (`sandbox/policy.py`) is server-side config — the LLM-facing `execute` tool only ever takes a command string, so there's no code path for the model to loosen any of this.
 
-`backend/harness/skills/{common,<agent_key>}/` and `backend/harness/memory/<agent_key>/` are mounted read-only (`ReadOnlyFilesystemBackend`) alongside the sandbox via a `CompositeBackend`, scoped per agent — a research agent can't read trading's memory, for instance — and the agent can read its own harness content but never write to it, even though it has full read/write inside `/workspace`.
+`backend/harness/skills/{common,<agent_key>}/` and `backend/harness/memory/<agent_key>/` are mounted read-only (`ReadOnlyFilesystemBackend`) alongside the sandbox via a `CompositeBackend`, scoped per agent — one agent profile can't read another's memory — and the agent can read its own harness content but never write to it, even though it has full read/write inside `/workspace`.
 
 ## The harness
 
@@ -165,7 +165,7 @@ Every filesystem operation and shell command an agent runs happens inside a lock
 
 ## Adding a new agent type
 
-1. `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/__init__.py` — define an `AgentProfile` and call `register_profile(...)`. Copy an existing profile (`sales` is the simplest) as a starting point.
+1. `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/__init__.py` — define an `AgentProfile` and call `register_profile(...)`. Copy `research` (or the minimal `experiment`) as a starting point.
 2. `backend/harness/{skills,prompts,memory}/<key>/` — that profile's harness content (at minimum, `memory/<key>/AGENTS.md` and a prompt per declared role).
 3. `libs/agent-renderers/src/<key>/renderer.tsx` + one line in `libs/agent-renderers/src/registry.ts` — optional; omit it and the built-in markdown/chart/news renderer is used automatically.
 4. Restart the backend and the runtime. Visit `?agent=<key>`.

@@ -30,7 +30,7 @@ from krutrim_agent_backend.api.chat_routes import CHECKPOINT_FILENAME
 from krutrim_agent_backend.api.schemas import ChatApiMessage
 from krutrim_agent_backend.celery_client import celery_client
 from krutrim_agent_backend.chat.graph import build_chat_graph
-from krutrim_agent_backend.chat.messages import from_lc_messages
+from krutrim_agent_backend.chat.messages import to_display_messages
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -152,9 +152,13 @@ async def delete_session(session_id: str, request: Request) -> SessionDeletedRes
 @router.get("/{session_id}/messages")
 async def get_session_messages(session_id: str, request: Request) -> SessionMessagesResponse:
     """Reads history straight out of the session's LangGraph checkpoint
-    (`langgraph_checkpoint.sqlite`, written by `POST /api/chat`), keyed by
-    `thread_id == session_id`. Returns `[]` if the session has never been
-    messaged (no checkpoint file yet)."""
+    (`langgraph_checkpoint.sqlite`), keyed by `thread_id == session_id`, and
+    reduces it to the user-visible turns (see `to_display_messages`). Returns
+    `[]` if the session has never been messaged (no checkpoint file yet).
+
+    Works for both `Chat`-owned sessions (checkpoint written by `POST /api/chat`)
+    and `Agent`-owned ones (in-sandbox run's checkpoint, synced back to the
+    session dir by `SandboxRegistry.release` -> `import_scope`)."""
     storage = _storage(request)
     await _get_session(storage, session_id)
 
@@ -169,10 +173,14 @@ async def get_session_messages(session_id: str, request: Request) -> SessionMess
         graph = build_chat_graph(object(), checkpointer=checkpointer)
         state = await graph.aget_state(config)
     lc_messages = (state.values or {}).get("messages", []) if state else []
+    display = to_display_messages(lc_messages)
     logger.debug(
-        "sessions: {} history has {} message(s)", session_id, len(lc_messages)
+        "sessions: {} history has {} checkpoint message(s), {} visible",
+        session_id,
+        len(lc_messages),
+        len(display),
     )
-    return {"messages": from_lc_messages(lc_messages)}
+    return {"messages": display}
 
 
 

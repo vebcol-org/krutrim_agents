@@ -224,6 +224,17 @@ The message to show the user when interaction is required. Use `null` when decis
 **research_instruction:**
 What the research agent should do next. Use `null` when waiting for user input.
 
+### How the contract appears in your reply
+
+The contract is an internal routing signal, not user-facing text.
+
+* `decision: continue` or `decision: finish` — do **not** print the `decision` /
+  `reason` / `research_instruction` fields. Reply with **only** the final answer
+  itself, formatted exactly per the `<output_format>` spec (section-id markers,
+  tables, headings and all). No preamble, no `---` separator before it.
+* `decision: ask_clarification` / `request_approval` / `request_choice` — reply
+  with **only** the `user_message` text; nothing else.
+
 ## Important Constraints
 
 * Never confuse clarification with approval — they are separate interaction types with separate triggers.

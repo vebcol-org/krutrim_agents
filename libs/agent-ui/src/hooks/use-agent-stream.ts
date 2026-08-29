@@ -42,6 +42,9 @@ export interface RunStats {
 export interface UseAgentStreamOptions {
   /** Full run endpoint URL. `null` → the hook stays inert and `sendMessage` no-ops. */
   url: string | null;
+  /** Optional POST endpoint that cancels an in-flight server-side run (in-sandbox
+   * agents). `stop()` still aborts the local SSE stream when this is absent. */
+  interruptUrl?: string | null;
   /** AG-UI `threadId`; reused across runs so the backend resumes the right checkpoint.
    * Also the identity the internal `HttpAgent` is memoised on — change it to start a
    * fresh conversation (a new `HttpAgent`, re-seeded from `initialMessages`). */
@@ -66,6 +69,9 @@ export interface UseAgentStreamResult {
   isRunning: boolean;
   error: string | null;
   sendMessage: (text: string) => void;
+  /** Abort the current run: cancels the local SSE stream and, if `interruptUrl`
+   * was provided, asks the server to cancel the in-sandbox turn too. */
+  stop: () => void;
 }
 
 /** Best-effort plain-text extraction from an AG-UI `Message` (assistant replies here are
@@ -108,6 +114,7 @@ function findLastStarted(steps: TraceStep[], kind: TraceStep['kind'], label?: st
 
 export function useAgentStream({
   url,
+  interruptUrl,
   threadId,
   initialMessages,
   forwardedProps,
@@ -272,5 +279,16 @@ export function useAgentStream({
       .finally(() => setIsRunning(false));
   }
 
-  return { messages, trace, reasoningByMessageId, runStats, isRunning, error, sendMessage };
+  function stop() {
+    if (!isRunning) return;
+    agent?.abortRun();
+    setIsRunning(false);
+    if (interruptUrl) {
+      // Fire-and-forget: the server cancels the in-sandbox turn; any late SSE
+      // events are ignored since the local run is already aborted.
+      void fetch(interruptUrl, { method: 'POST' }).catch(() => undefined);
+    }
+  }
+
+  return { messages, trace, reasoningByMessageId, runStats, isRunning, error, sendMessage, stop };
 }

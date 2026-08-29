@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 const workbook: AgentDashboardWorkbook = {
   workbookId: 'wb',
-  agentType: 'sales',
+  agentType: 'research',
   dataSources: [
     {
       id: 'ds',

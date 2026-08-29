@@ -39,7 +39,7 @@ This means mounting the socket effectively gives `backend`/`celery-worker` root-
 The agent sandbox image is **not** built by `docker-compose.yml` — it just has to already exist in your host engine's image store by the name `backend`/`celery-worker` code expects (`KRUTRIM_AGENT_SANDBOX_IMAGE`, default `krutrim_agent-sandbox:latest`), because they reference it by name when asking the host engine to start a container:
 
 ```bash
-docker build -f docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest .
+docker build -f docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest backend
 ```
 
 Rebuild it whenever `sandbox.Dockerfile` changes.
@@ -186,7 +186,7 @@ the *named volumes* (this does **not** touch your bind-mounted data — see belo
 
 Two things are bind-mounted from your real home directory / repo, not stored inside the containers, so `docker compose down` / image rebuilds never lose them:
 
-- `${HOME}/.krutrim_agent` → `/data` in `backend` and `celery-worker` — projects, sessions, the sandbox-container registry (`STORAGE_ROOT`, see `krutrim_agent_management/local.py`'s docstring for the full layout).
+- `${HOME}/.krutrim_agent` → **the same path** inside `backend` and `celery-worker` (an *identity* mount, and `STORAGE_ROOT` is set to it) — projects, sessions, the sandbox-container registry (see `krutrim_agent_management/local.py`'s docstring for the full layout). It's mounted at the host path, not a tidy `/data`, on purpose: `backend`/`celery-worker` drive the **host** Docker daemon over the mounted socket, so the sandbox bind-mount sources they derive from `STORAGE_ROOT` have to be paths that daemon can resolve. A container-only `/data` gets rejected with `mounts denied … not shared from the host`.
 - `backend/harness/memory` → `/app/harness/memory` — per-agent provider settings (`settings.json`) and run transcripts. Gitignored, written at runtime.
 
 Both processes point at the *same* `STORAGE_ROOT` (matching how the non-Docker dev setup already runs backend + Celery against one shared `~/.krutrim_agent`) — see that module's docstring for the "not safe for concurrent writes across processes" caveat, which is an existing constraint, not something Docker introduces.

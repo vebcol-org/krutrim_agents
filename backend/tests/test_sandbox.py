@@ -32,7 +32,7 @@ def _image_available() -> bool:
 requires_sandbox = pytest.mark.skipif(
     not _docker_available() or not _image_available(),
     reason="Docker daemon or krutrim_agent-sandbox:latest image not available "
-    "(build it with: docker build -f docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest .)",
+    "(build it with: docker build -f docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest backend)",
 )
 
 

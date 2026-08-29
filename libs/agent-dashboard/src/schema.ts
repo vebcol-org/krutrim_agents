@@ -11,11 +11,11 @@ export const AGENT_DASHBOARD_SCHEMA = {
   title: 'AgentDashboardWorkbook',
   type: 'object',
   description:
-    'A complete dashboard produced by an agent (research, sales, or trading). Contains the raw data, chart definitions, filters, and page layout. Render by resolving each chart\'s dataSourceId against dataSources, applying active filters, then laying out charts per page.layout.',
+    'A complete dashboard produced by an agent (research). Contains the raw data, chart definitions, filters, and page layout. Render by resolving each chart\'s dataSourceId against dataSources, applying active filters, then laying out charts per page.layout.',
   required: ['workbookId', 'agentType', 'dataSources', 'charts', 'pages'],
   properties: {
     workbookId: { type: 'string' },
-    agentType: { type: 'string', enum: ['research', 'sales', 'trading'] },
+    agentType: { type: 'string', enum: ['research'] },
     schemaVersion: { type: 'integer', minimum: 1 },
     title: { type: 'string' },
     generatedAt: { type: 'string', format: 'date-time' },

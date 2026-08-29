@@ -1,7 +1,5 @@
 import { DefaultRenderer } from './default-renderer';
 import { ResearchRenderer } from './research/renderer';
-import { SalesRenderer } from './sales/renderer';
-import { TradingRenderer } from './trading/renderer';
 import type { AgentRendererComponent } from './types';
 
 /**
@@ -12,8 +10,6 @@ import type { AgentRendererComponent } from './types';
  */
 const RENDERERS: Record<string, AgentRendererComponent> = {
   research: ResearchRenderer,
-  trading: TradingRenderer,
-  sales: SalesRenderer,
 };
 
 export function getAgentRenderer(agentKey: string): AgentRendererComponent {

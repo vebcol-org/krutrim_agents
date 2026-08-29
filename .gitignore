@@ -34,9 +34,13 @@ backend/**/*.pyc
 backend/.pytest_cache/
 backend/harness/memory/runs/
 backend/harness/memory/settings.json
+backend/evals/runs/
+backend/evals/providers.json
 backend/.ruff_cache/
 backend/.coverage
 *.egg-info/
+.ruff_cache
+.pytest_cache
 
 # Docker build secrets (github_token for the private faisslite clone)
 docker/.secrets/
@@ -65,3 +69,5 @@ dev_cache.py
 .zed
 .vscode
 .nx
+*.patch
+!./patch/*.patch

@@ -38,9 +38,9 @@ def test_every_profile_harness_paths_exist_on_disk():
 
 
 def test_expected_profiles_are_registered():
-    # The three profiles this pass ships with. Not exhaustive by design -
-    # more can be added without touching this file.
-    assert {"research", "trading", "sales"}.issubset(all_profiles())
+    # `research` is the profile this pass ships with (others land later). Not
+    # exhaustive by design - more can be added without touching this file.
+    assert {"research"}.issubset(all_profiles())
 
 
 def test_registry_discovers_a_new_profile_package_without_touching_registry_py(
