@@ -8,10 +8,9 @@ export interface ProseMarkdownProps {
   components?: ReactMarkdownOptions['components'];
 }
 
-/** Shared prose-wrapper markup — previously duplicated verbatim between
- * `default-renderer.tsx` and `trading/renderer.tsx`. Always includes
- * `remark-gfm`; a caller (e.g. `research/renderer.tsx`) can extend both
- * plugin lists for spec-specific syntax (math, raw HTML for image-width
+/** Shared prose-wrapper markup, used by `default-renderer.tsx`. Always
+ * includes `remark-gfm`; a caller (e.g. `research/renderer.tsx`) can extend
+ * both plugin lists for spec-specific syntax (math, raw HTML for image-width
  * hints) without touching this shared prose styling. */
 export function ProseMarkdown({ content, remarkPlugins, rehypePlugins, components }: ProseMarkdownProps) {
   return (

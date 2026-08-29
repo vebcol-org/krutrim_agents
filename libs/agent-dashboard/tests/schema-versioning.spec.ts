@@ -9,7 +9,7 @@ import {
 afterEach(clearSchemaAdapters);
 
 function baseFields() {
-  return { agentType: 'sales', dataSources: [], charts: [], pages: [] };
+  return { agentType: 'research', dataSources: [], charts: [], pages: [] };
 }
 
 describe('migrateWorkbook', () => {

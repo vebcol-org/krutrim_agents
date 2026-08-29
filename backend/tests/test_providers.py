@@ -58,22 +58,19 @@ def test_provider_store_seeds_from_registry(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
     all_research = store.get_all("research")
     assert set(all_research) == {"main", "researcher", "critic", "writer"}
-    all_sales = store.get_all("sales")
-    assert set(all_sales) == {
-        "main",
-        "researcher",
-        "writer",
-    }  # sales has no critic role
+    # `experiment` declares only a single role — proof the store respects each
+    # profile's own role set, not a fixed four.
+    assert set(store.get_all("experiment")) == {"main"}
 
 
 def test_provider_store_set_and_get(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
     store.set(
-        "trading",
+        "research",
         "critic",
         {"provider": "openrouter", "model": "mistral", "temperature": 0.9},
     )
-    updated = store.get("trading", "critic")
+    updated = store.get("research", "critic")
     assert updated.model == "mistral"
     assert updated.temperature == 0.9
 
@@ -88,29 +85,29 @@ def test_provider_store_set_unknown_role_raises(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
     with pytest.raises(ValueError, match="Unknown role"):
         store.set(
-            "sales", "critic", {"provider": "openrouter", "model": "x"}
-        )  # sales has no critic
+            "experiment", "critic", {"provider": "openrouter", "model": "x"}
+        )  # experiment only has a `main` role
 
 
 def test_provider_store_reset(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
-    original = store.get("trading", "writer")
-    store.set("trading", "writer", {"provider": "openrouter", "model": "mistral"})
-    store.reset("trading", "writer")
-    assert store.get("trading", "writer") == original
+    original = store.get("research", "writer")
+    store.set("research", "writer", {"provider": "openrouter", "model": "mistral"})
+    store.reset("research", "writer")
+    assert store.get("research", "writer") == original
 
 
 def test_provider_store_isolated_per_agent(tmp_path):
     store = ProviderStore(tmp_path / "settings.json")
-    store.set("trading", "main", {"provider": "openrouter", "model": "trading-model"})
-    # research's "main" role must be untouched by trading's change
-    assert store.get("research", "main").model != "trading-model"
+    store.set("experiment", "main", {"provider": "openrouter", "model": "exp-model"})
+    # research's "main" role must be untouched by experiment's change
+    assert store.get("research", "main").model != "exp-model"
 
 
 def test_provider_store_new_agent_seeded_without_overwriting_existing(tmp_path):
     path = tmp_path / "settings.json"
     store = ProviderStore(path)
-    store.set("trading", "main", {"provider": "openrouter", "model": "customized"})
+    store.set("experiment", "main", {"provider": "openrouter", "model": "customized"})
     # Re-opening the store (simulates a backend restart) must not clobber the customization.
     store2 = ProviderStore(path)
-    assert store2.get("trading", "main").model == "customized"
+    assert store2.get("experiment", "main").model == "customized"

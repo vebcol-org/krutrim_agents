@@ -16,6 +16,11 @@ import grpc
 from krutrim_agent_grpc.proto import agent_runtime_pb2 as pb
 from krutrim_agent_grpc.proto import agent_runtime_pb2_grpc as pbg
 
+# A gRPC control channel must never traverse an HTTP proxy (grpc otherwise
+# honours ``http_proxy`` / ``no_proxy``); this is loopback / a private Docker
+# network, not agent egress.
+_CHANNEL_OPTIONS = (("grpc.enable_http_proxy", 0),)
+
 
 class AgentRuntimeClient:
     def __init__(self, target: str) -> None:
@@ -26,7 +31,7 @@ class AgentRuntimeClient:
         self._stub: pbg.AgentRuntimeStub | None = None
 
     async def __aenter__(self) -> AgentRuntimeClient:
-        self._channel = grpc.aio.insecure_channel(self._target)
+        self._channel = grpc.aio.insecure_channel(self._target, options=_CHANNEL_OPTIONS)
         self._stub = pbg.AgentRuntimeStub(self._channel)
         return self
 

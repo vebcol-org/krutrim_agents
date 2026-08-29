@@ -1,23 +1,22 @@
 import type { Message } from '@ag-ui/client';
 
-import { messageText, type ReasoningEntry } from '../../hooks/use-agent-stream';
-import { ThinkingDisclosure } from '../agent/thinking-disclosure';
+import { messageText } from '../../hooks/use-agent-stream';
 
 export interface AgentMessageBubbleProps {
   message: Message;
-  /** Streamed "thinking" for this message (keyed by id upstream), if any. */
-  reasoning?: ReasoningEntry;
   /** Show a blinking caret after the text (last assistant message, mid-run). */
   streaming?: boolean;
 }
 
-export function AgentMessageBubble({ message, reasoning, streaming }: AgentMessageBubbleProps) {
+/** One user/assistant turn. Reasoning and tool activity are no longer rendered
+ * here — they live in the `AgentActivity` block above the assistant answer. */
+export function AgentMessageBubble({ message, streaming }: AgentMessageBubbleProps) {
   const text = messageText(message);
   const isUser = message.role === 'user';
 
-  // Nothing to show yet: an assistant message whose content is still "" and that
-  // has no reasoning either — the list's own running indicator covers the gap.
-  if (!text && !reasoning) return null;
+  // An assistant message whose content is still "" — the list's own running
+  // indicator / the activity block cover the gap.
+  if (!text) return null;
 
   if (isUser) {
     return (
@@ -29,13 +28,10 @@ export function AgentMessageBubble({ message, reasoning, streaming }: AgentMessa
 
   return (
     <div className="flex max-w-[85%] flex-col items-start">
-      {reasoning && <ThinkingDisclosure reasoning={reasoning} />}
-      {text && (
-        <div className="whitespace-pre-wrap rounded-lg bg-secondary px-3 py-2 text-sm text-foreground">
-          {text}
-          {streaming && <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-text-bottom" />}
-        </div>
-      )}
+      <div className="whitespace-pre-wrap rounded-lg bg-secondary px-3 py-2 text-sm text-foreground">
+        {text}
+        {streaming && <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-text-bottom" />}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Agent } from '@krutrim_agent/shared-types';
 
 import { useAgentChat, useAgentHistory, useChat, useChatStream, useUrlSync, useWorkspace } from '../../hooks';
@@ -78,6 +78,21 @@ export function AgentLayout({ backendUrl }: AgentProps) {
   });
   const outputPayload = activeAgent ? deriveRenderPayload(agentChat.messages, activeAgent.display_name) : null;
 
+  // Reveal the output explorer automatically the moment a run finishes with a
+  // final answer — mirrors Claude popping its artifact panel open. Never
+  // auto-closes; a manual toggle afterwards is respected.
+  const wasRunningRef = useRef(false);
+  useEffect(() => {
+    const justFinished = wasRunningRef.current && !agentChat.isRunning;
+    wasRunningRef.current = agentChat.isRunning;
+    if (justFinished && outputPayload) setOutputCollapsed(false);
+  }, [agentChat.isRunning, outputPayload]);
+
+  // A fresh session starts with the explorer tucked away again.
+  useEffect(() => {
+    setOutputCollapsed(true);
+  }, [activeAgentSessionId]);
+
   // Agent-owned session details aren't tracked here yet (the AG-UI client that will actually
   // need them is a later pass) — so an Agent's sandbox settings only cover its own
   // owner-level policy for now, not a specific session's, even though `selection.sessionId`
@@ -107,7 +122,7 @@ export function AgentLayout({ backendUrl }: AgentProps) {
           sessionId={activeAgentSessionId}
           onOpenSandboxSettings={() => setSandboxSettingsOpen(true)}
           messages={agentChat.messages}
-          reasoningByMessageId={agentChat.reasoningByMessageId}
+          trace={agentChat.trace}
           isRunning={agentChat.isRunning}
           error={agentChat.error}
           sendMessage={agentChat.sendMessage}
@@ -145,7 +160,7 @@ export function AgentLayout({ backendUrl }: AgentProps) {
         width={outputWidth}
         agentKey={activeAgent?.agent_key ?? null}
         payload={outputPayload}
-        trace={agentChat.trace}
+        busy={agentChat.isRunning}
       />
 
       {sandboxSettingsOpen && sandboxTarget && (

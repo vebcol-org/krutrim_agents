@@ -1,7 +1,7 @@
 {
   "name": "@krutrim_agent/agent-renderers",
   "version": "0.1.0",
-  "description": "Per-agent-type canvas renderer registry (research/trading/sales) plus the default markdown/chart/news renderer, keyed off an agent key.",
+  "description": "Per-agent-type canvas renderer registry (research) plus the default markdown/chart/news renderer, keyed off an agent key.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

@@ -4,7 +4,7 @@ import type { AgentDashboardWorkbook } from '../../src/types';
 
 const workbook: AgentDashboardWorkbook = {
   workbookId: 'wb1',
-  agentType: 'sales',
+  agentType: 'research',
   dataSources: [
     {
       id: 'deals',

@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 const workbook: AgentDashboardWorkbook = {
   workbookId: 'wb',
-  agentType: 'sales',
+  agentType: 'research',
   dataSources: [{ id: 'ds', fields: [{ name: 'x', role: 'dimension', dataType: 'string' }], data: [] }],
   charts: [
     { id: 'c1', dataSourceId: 'ds', type: 'bar', encoding: {} },

@@ -5,7 +5,7 @@ import { Badge, Button } from '@krutrim_agent/ui';
 import { Settings } from 'lucide-react';
 
 import { fetchSession } from '../../api';
-import type { ReasoningEntry } from '../../hooks/use-agent-stream';
+import type { TraceStep } from '../../hooks/use-agent-stream';
 import { useBlurStatusTitle } from '../../hooks/use-blur-status-title';
 import { useSessionFiles } from '../../hooks/use-session-files';
 import { FilesButton, FilesDrawer } from '../agent/files-drawer';
@@ -25,7 +25,8 @@ export interface AgentThreadProps {
   /** Lifted to `AgentLayout` (via `useAgentChat`) so `OutputPanel`, a sibling,
    * can derive its canvas payload from the same live message list. */
   messages: Message[];
-  reasoningByMessageId: Record<string, ReasoningEntry>;
+  /** Live step / tool-call / reasoning trace — feeds the `AgentActivity` block. */
+  trace: TraceStep[];
   isRunning: boolean;
   error: string | null;
   sendMessage: (text: string) => void;
@@ -41,7 +42,7 @@ export function AgentThread({
   sessionId,
   onOpenSandboxSettings,
   messages,
-  reasoningByMessageId,
+  trace,
   isRunning,
   error,
   sendMessage,
@@ -105,7 +106,7 @@ export function AgentThread({
 
       <AgentMessageList
         messages={messages}
-        reasoningByMessageId={reasoningByMessageId}
+        trace={trace}
         isRunning={isRunning}
         error={error}
       />

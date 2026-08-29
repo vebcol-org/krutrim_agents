@@ -37,7 +37,11 @@ def _dial_health(target: str) -> bool:
     from krutrim_agent_grpc.proto import agent_runtime_pb2_grpc as pbg
 
     try:
-        with grpc.insecure_channel(target) as channel:
+        # enable_http_proxy=0: a gRPC control dial must not go through the
+        # container's HTTP(S)_PROXY (the allowlist egress proxy would 403 it).
+        with grpc.insecure_channel(
+            target, options=(("grpc.enable_http_proxy", 0),)
+        ) as channel:
             reply = pbg.AgentRuntimeStub(channel).Health(pb.HealthRequest(), timeout=4)
         return bool(reply.ready)
     except Exception:  # noqa: BLE001

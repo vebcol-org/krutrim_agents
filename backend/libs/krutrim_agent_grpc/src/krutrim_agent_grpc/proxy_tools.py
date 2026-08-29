@@ -22,7 +22,11 @@ from langchain_core.tools import StructuredTool
 
 from krutrim_agent_grpc.proto import agent_runtime_pb2 as pb
 from krutrim_agent_grpc.proto import agent_runtime_pb2_grpc as pbg
-from krutrim_agent_grpc.proxy_model import HOST_BRIDGE_ENDPOINT_ENV, host_bridge_target
+from krutrim_agent_grpc.proxy_model import (
+    GRPC_CALL_HOME_OPTIONS,
+    HOST_BRIDGE_ENDPOINT_ENV,
+    host_bridge_target,
+)
 
 
 def _thread_id() -> str:
@@ -55,7 +59,9 @@ async def _invoke_host_tool(name: str, args: dict) -> str:
     if not endpoint:
         return f"Error: {name} unavailable — {HOST_BRIDGE_ENDPOINT_ENV} is unset."
     try:
-        async with grpc.aio.insecure_channel(host_bridge_target(endpoint)) as channel:
+        async with grpc.aio.insecure_channel(
+            host_bridge_target(endpoint), options=GRPC_CALL_HOME_OPTIONS
+        ) as channel:
             reply = await pbg.HostBridgeStub(channel).InvokeHostTool(
                 _request(name, args), timeout=120.0
             )
@@ -69,7 +75,9 @@ def _invoke_host_tool_sync(name: str, args: dict) -> str:
     if not endpoint:
         return f"Error: {name} unavailable — {HOST_BRIDGE_ENDPOINT_ENV} is unset."
     try:
-        with grpc.insecure_channel(host_bridge_target(endpoint)) as channel:
+        with grpc.insecure_channel(
+            host_bridge_target(endpoint), options=GRPC_CALL_HOME_OPTIONS
+        ) as channel:
             reply = pbg.HostBridgeStub(channel).InvokeHostTool(
                 _request(name, args), timeout=120.0
             )

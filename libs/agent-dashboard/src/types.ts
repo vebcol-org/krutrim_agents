@@ -149,7 +149,7 @@ export interface Page {
   layout: LayoutItem[];
 }
 
-export type AgentType = 'research' | 'sales' | 'trading';
+export type AgentType = 'research';
 
 export interface AgentDashboardWorkbook {
   workbookId: string;

@@ -15,7 +15,7 @@ backend/
 │   │   └── src/krutrim_agent_management/
 │   ├── krutrim_agent_sandbox/           # Docker sandbox backend, policy, registry, status channel
 │   │   └── src/krutrim_agent_sandbox/
-│   └── krutrim_agents/                  # agent profile content (research/trading/sales)
+│   └── krutrim_agents/                  # agent profile content (research/experiment)
 │       └── src/krutrim_agents/
 │
 ├── services/                   # deployable processes

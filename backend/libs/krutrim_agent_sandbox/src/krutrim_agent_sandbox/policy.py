@@ -164,9 +164,19 @@ class SandboxPolicy(BaseModel):
         if self.network in ("bridge", "egress-allowlist"):
             kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
         if self.network == "egress-allowlist" and self.egress_proxy_endpoint:
-            # host.docker.internal is excluded so the gRPC call-home to
-            # HostBridge never traverses the HTTP proxy.
-            no_proxy = "localhost,127.0.0.1,host.docker.internal"
+            # Exclude the host itself from the proxy: the container reaches
+            # HostBridge and the egress proxy *at* this address, and (when the
+            # backend is containerised on a shared network) `callback_host` is a
+            # service name, not host.docker.internal. Without this a plain HTTP
+            # call home would be sent to the proxy and 403'd. The gRPC call-home
+            # also sets `grpc.enable_http_proxy=0` and so is safe regardless.
+            from urllib.parse import urlparse
+
+            no_proxy_hosts = ["localhost", "127.0.0.1", "host.docker.internal"]
+            callback_host = urlparse(self.egress_proxy_endpoint).hostname
+            if callback_host and callback_host not in no_proxy_hosts:
+                no_proxy_hosts.append(callback_host)
+            no_proxy = ",".join(no_proxy_hosts)
             proxy_env = {
                 "HTTP_PROXY": self.egress_proxy_endpoint,
                 "HTTPS_PROXY": self.egress_proxy_endpoint,

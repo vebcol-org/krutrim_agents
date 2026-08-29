@@ -11,7 +11,7 @@ import type {
 import { apiDelete, apiGet, apiPost, apiPut } from '../utils/http-client';
 import { agentMetaSchema, agentSchema, sessionInfoSchema } from './schemas';
 
-/** `GET /api/agents` — every registered agent *profile* (research/trading/sales/...), not
+/** `GET /api/agents` — every registered agent *profile* (research/...), not
  * project-scoped instances of them (those are the rest of this file). Used to populate the
  * `agent_key` picker when creating a new `Agent` instance. */
 export function fetchAgentProfiles(backendUrl: string): Promise<AgentMeta[]> {

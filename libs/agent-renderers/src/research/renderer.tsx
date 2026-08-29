@@ -9,7 +9,6 @@ import { ProseMarkdown } from '../prose';
 import type { AgentRendererProps } from '../types';
 import { flattenTree, prepareResearchMarkdown, type SectionNode } from './section-markers';
 import { SectionToc } from './toc';
-import { TracePanel } from './trace-panel';
 
 type HeadingTag = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 const HEADING_TAGS: HeadingTag[] = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
@@ -42,7 +41,7 @@ function makeHeadingComponents(flatSections: SectionNode[]): Partial<Record<Head
  * `rehype-raw` (Section 4). `<!-- repeat-header -->` (also Section 2) is a
  * print-only hint with no browser equivalent — stripped silently.
  */
-export function ResearchRenderer({ payload, trace }: AgentRendererProps) {
+export function ResearchRenderer({ payload }: AgentRendererProps) {
   const { tree, content } = useMemo(() => prepareResearchMarkdown(payload.content), [payload.content]);
   const flatSections = useMemo(() => flattenTree(tree), [tree]);
   const headingComponents = useMemo(() => makeHeadingComponents(flatSections), [flatSections]);
@@ -63,7 +62,6 @@ export function ResearchRenderer({ payload, trace }: AgentRendererProps) {
       <div className="flex min-h-0 flex-1">
         <SectionToc tree={tree} activeId={activeId} onSelect={scrollToSection} />
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-6 lg:px-8">
-          {trace && <TracePanel trace={trace} />}
           <ProseMarkdown
             content={content}
             remarkPlugins={[remarkMath]}

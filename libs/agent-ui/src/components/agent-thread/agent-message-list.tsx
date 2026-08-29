@@ -1,30 +1,32 @@
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import type { Message } from '@ag-ui/client';
 import { ScrollArea } from '@krutrim_agent/ui';
 
-import type { ReasoningEntry } from '../../hooks/use-agent-stream';
+import type { TraceStep } from '../../hooks/use-agent-stream';
+import { AgentActivity } from './agent-activity';
 import { AgentMessageBubble } from './agent-message-bubble';
 
 export interface AgentMessageListProps {
   messages: Message[];
-  reasoningByMessageId?: Record<string, ReasoningEntry>;
+  /** Live step / tool-call / reasoning trace for the current turn. */
+  trace?: TraceStep[];
   isRunning: boolean;
   error: string | null;
 }
 
-/** Auto-scrolls to the bottom whenever `messages` changes. Only ever shows
- * `user`/`assistant` turns — a run can also produce `system`/`tool`/`reasoning`
- * messages in the underlying list, not meant for display here. */
-export function AgentMessageList({ messages, reasoningByMessageId = {}, isRunning, error }: AgentMessageListProps) {
+/** Auto-scrolls to the bottom whenever `messages` or `trace` changes. Only ever
+ * shows `user`/`assistant` turns — a run can also produce `system`/`tool`/
+ * `reasoning` messages in the underlying list, not meant for display here; the
+ * agent's thinking and tool use surface in the `AgentActivity` block instead. */
+export function AgentMessageList({ messages, trace = [], isRunning, error }: AgentMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, reasoningByMessageId]);
+  }, [messages, trace]);
 
   const visible = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
   const lastAssistantIdx = visible.map((m) => m.role).lastIndexOf('assistant');
-  const newestReasoning = Object.values(reasoningByMessageId).at(-1);
 
   return (
     <ScrollArea ref={scrollRef} className="flex-1 px-5 py-4">
@@ -34,18 +36,16 @@ export function AgentMessageList({ messages, reasoningByMessageId = {}, isRunnin
         )}
         {visible.map((message, idx) => {
           const isLastAssistant = idx === lastAssistantIdx;
-          const reasoning =
-            reasoningByMessageId[message.id] ?? (isLastAssistant && isRunning ? newestReasoning : undefined);
           return (
-            <AgentMessageBubble
-              key={message.id}
-              message={message}
-              reasoning={reasoning}
-              streaming={isLastAssistant && isRunning}
-            />
+            <Fragment key={message.id}>
+              {isLastAssistant && <AgentActivity trace={trace} isRunning={isRunning} />}
+              <AgentMessageBubble message={message} streaming={isLastAssistant && isRunning} />
+            </Fragment>
           );
         })}
-        {isRunning && lastAssistantIdx === -1 && (
+        {/* No assistant turn yet — show the activity block (or a bare hint) at the end. */}
+        {lastAssistantIdx === -1 && trace.length > 0 && <AgentActivity trace={trace} isRunning={isRunning} />}
+        {isRunning && lastAssistantIdx === -1 && trace.length === 0 && (
           <p className="font-mono text-xs text-muted-foreground">thinking…</p>
         )}
         {error && (

@@ -36,6 +36,12 @@ from krutrim_agent_grpc.proto import agent_runtime_pb2_grpc as pbg
 
 HOST_BRIDGE_ENDPOINT_ENV = "KRUTRIM_AGENT_HOST_BRIDGE_ENDPOINT"
 
+#: The call-home is a gRPC control channel to the host, not agent egress — it
+#: must NOT go through the container's ``HTTP(S)_PROXY`` (the allowlist egress
+#: proxy), which would 403 it. gRPC otherwise honours ``http_proxy`` /
+#: ``no_proxy``; this disables that per channel, independent of ``NO_PROXY``.
+GRPC_CALL_HOME_OPTIONS = (("grpc.enable_http_proxy", 0),)
+
 #: `ModelSettings` fields the sandbox must NOT dictate. It resolves them from its
 #: own env, which is empty and network-isolated — so e.g. `base_url` falls back
 #: to the public provider URL, bypassing a local gateway, and the real key never
@@ -82,7 +88,10 @@ def _require_host_bridge_endpoint() -> str:
 def _host_bridge_channel():
     """A gRPC channel to the host's HostBridge. The endpoint env is a TCP
     target — ``<callback_host>:<port>`` (e.g. ``host.docker.internal:<port>``)."""
-    return grpc.insecure_channel(host_bridge_target(_require_host_bridge_endpoint()))
+    return grpc.insecure_channel(
+        host_bridge_target(_require_host_bridge_endpoint()),
+        options=GRPC_CALL_HOME_OPTIONS,
+    )
 
 
 class ProxyChatModel(BaseChatModel):

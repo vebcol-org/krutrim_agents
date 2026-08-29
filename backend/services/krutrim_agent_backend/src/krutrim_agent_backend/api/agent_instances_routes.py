@@ -1,8 +1,8 @@
 """Agent instance CRUD, nested under a project.
 
 Not to be confused with `agents_routes.py` (`GET /api/agents`, which lists
-*registered profiles* — `research`/`trading`/`sales`, code-defined plugin
-types). This file manages *instances* of those profiles: a project can hold
+*registered profiles* — `research`, code-defined plugin types). This file
+manages *instances* of those profiles: a project can hold
 several agents sharing the same `agent_key` (e.g. two `research`-profile
 agents named "Company Business Analysis" and "Company Finance Analysis"),
 distinguished by `display_name` and each with their own sessions and sandbox
