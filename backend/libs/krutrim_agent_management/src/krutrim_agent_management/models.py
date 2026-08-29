@@ -8,7 +8,7 @@ belongs to exactly one `Agent` or `Chat` (`owner_type`/`owner_id`), never direct
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -105,5 +105,6 @@ class ContainerRecord(BaseModel):
     created_at: str
     last_active_at: str
     """Bumped on every successful execute/upload/download call — what the reaper reads."""
-    policy_snapshot: dict[str, int | str] | None = None
-    """The resolved `SandboxPolicy` this container was started with."""
+    policy_snapshot: dict[str, Any] | None = None
+    """The resolved `SandboxPolicy` this container was started with
+    (`SandboxPolicy.model_dump()`, so nested `binds`/list/None fields too)."""

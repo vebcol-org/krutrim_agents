@@ -137,23 +137,7 @@ class DockerSandboxBackend(BaseSandbox):
             try:
                 container = self._client.containers.run(
                     policy.image,
-                    command=["sleep", "infinity"],
-                    detach=True,
-                    name=container_name,
-                    network_disabled=(policy.network == "none"),
-                    mem_limit=f"{policy.memory_mb}m",
-                    nano_cpus=policy.nano_cpus,
-                    pids_limit=policy.pids_limit,
-                    read_only=True,
-                    tmpfs={
-                        "/tmp": f"size={policy.tmp_tmpfs_mb}m,uid=1000,gid=1000,mode=1777",
-                        "/workspace": f"size={policy.workspace_tmpfs_mb}m,uid=1000,gid=1000,mode=1777",
-                    },
-                    working_dir="/workspace",
-                    user="sandbox",
-                    cap_drop=["ALL"],
-                    security_opt=["no-new-privileges"],
-                    auto_remove=False,
+                    **policy.to_docker_run_kwargs(container_name=container_name),
                 )
             except Exception as exc:
                 raise SandboxStartError(

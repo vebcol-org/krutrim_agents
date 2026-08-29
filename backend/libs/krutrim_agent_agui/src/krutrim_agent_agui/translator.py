@@ -24,6 +24,7 @@ Scope vs. the package it replaces:
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any
@@ -52,8 +53,8 @@ from ag_ui.core import (
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from loguru import logger
 
-from krutrim_agent_backend.agui.plugins import AguiPlugin, AguiRunContext
-from krutrim_agent_backend.agui.reasoning import (
+from krutrim_agent_agui.plugins import AguiPlugin, AguiRunContext
+from krutrim_agent_agui.reasoning import (
     resolve_reasoning_delta,
     resolve_text_delta,
 )
@@ -62,7 +63,13 @@ if TYPE_CHECKING:
     from ag_ui.core.types import RunAgentInput
     from langgraph.graph.state import CompiledStateGraph
 
-_RECURSION_LIMIT = 25
+def _recursion_limit() -> int:
+    """LangGraph super-step cap for one turn. `KRUTRIM_AGENT_GRAPH_RECURSION_LIMIT`
+    (default 100); the in-sandbox runtime exports it from `RunConfig`."""
+    try:
+        return int(os.getenv("KRUTRIM_AGENT_GRAPH_RECURSION_LIMIT") or 100)
+    except ValueError:
+        return 100
 
 
 def _last_user_text(input_data: RunAgentInput) -> str:
@@ -260,7 +267,10 @@ async def run_graph_as_agui(
     ctx = AguiRunContext(thread_id=thread_id, run_id=run_id, input=input_data)
     emitter = _RunEmitter(ctx, plugins)
 
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": _RECURSION_LIMIT}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": _recursion_limit(),
+    }
     graph_input = {
         "messages": [HumanMessage(content=_last_user_text(input_data))],
         "tools": _frontend_tools(input_data),

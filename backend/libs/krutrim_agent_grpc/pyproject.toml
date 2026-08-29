@@ -1,0 +1,37 @@
+[project]
+name = "krutrim-agent-grpc"
+version = "0.1.0"
+description = "gRPC contract + client/server for running an agent graph inside the sandbox container and calling back to the host for network/secret-bearing work."
+requires-python = ">=3.11"
+dependencies = [
+    "grpcio>=1.83.0",
+    "protobuf>=5.29.0",
+    "pydantic>=2.13.4",
+    # The in-sandbox runtime builds and streams the real agent graph; the host
+    # only imports the light client + HostBridge, but these are already host
+    # deps via krutrim-agent-backend so keeping them unconditional here costs
+    # nothing and keeps the sandbox image a single `pip install krutrim-agent-grpc`.
+    "krutrim-agent-agui",
+    "krutrim-agent-management",
+    "krutrim-agents-core",
+    "krutrim-agents",
+    "langgraph>=1.2.10",
+    "langgraph-checkpoint-sqlite>=3.1.1",
+    "deepagents>=0.7.0",
+]
+
+[project.optional-dependencies]
+# Only needed when regenerating the committed stubs — see scripts/gen_proto.py.
+codegen = [
+    "grpcio-tools>=1.83.0",
+]
+
+[tool.uv.sources]
+krutrim-agent-agui = { workspace = true }
+krutrim-agent-management = { workspace = true }
+krutrim-agents-core = { workspace = true }
+krutrim-agents = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

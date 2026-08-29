@@ -15,6 +15,8 @@ the same value the run's own checkpointer is keyed by.
 
 from __future__ import annotations
 
+import os as _os
+
 from krutrim_agent_management.config import settings
 from krutrim_agent_management.storage_factory import create_storage
 from langchain_core.tools import tool
@@ -53,6 +55,12 @@ async def rag_tool(query: str) -> str:
             f"{i}. [source: {chunk.source or 'unknown'}, score: {chunk.score:.3f}]\n   {chunk.text}"
         )
     return "\n".join(lines)
+
+
+if _os.getenv("KRUTRIM_AGENT_RUNTIME_IN_SANDBOX"):
+    # In-sandbox: retrieval runs on the host (which owns the vector store) via
+    # gRPC. Lazy import; see the matching guard in `krutrim_agents_core.tools`.
+    from krutrim_agent_grpc.proxy_tools import rag_tool  # noqa: F811
 
 
 async def _retrieve(store, session_id: str, query: str):

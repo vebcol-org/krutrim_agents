@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { randomUUID } from '@ag-ui/client';
 import { Button, cn, Textarea } from '@krutrim_agent/ui';
-import { ArrowUp, Loader2, Plus } from 'lucide-react';
+import { ArrowUp, Loader2, Plus, Square } from 'lucide-react';
 
 import { PastedTextChip } from './pasted-text-chip';
 
@@ -24,6 +24,10 @@ interface TextAttachment {
 export interface ComposerProps {
   disabled: boolean;
   onSend: (text: string) => void;
+  /** When true (and `onStop` is set) the send button becomes a stop button that
+   * stays enabled while `disabled` is true. */
+  isRunning?: boolean;
+  onStop?: () => void;
   /** Backend base URL + active session id — required to enable file attachments
    * (they upload through the RAG ingestion pipeline). Omit / pass a null
    * `sessionId` to hide the attach button. */
@@ -39,7 +43,17 @@ export interface ComposerProps {
   onFilesAdded?: () => void;
 }
 
-export function Composer({ disabled, onSend, backendUrl, sessionId, ensureSession, onAddFiles, onFilesAdded }: ComposerProps) {
+export function Composer({
+  disabled,
+  onSend,
+  isRunning,
+  onStop,
+  backendUrl,
+  sessionId,
+  ensureSession,
+  onAddFiles,
+  onFilesAdded,
+}: ComposerProps) {
   const [value, setValue] = useState('');
   const [textAttachments, setTextAttachments] = useState<TextAttachment[]>([]);
   // A session id resolved on demand via `ensureSession`, kept so later uploads
@@ -107,6 +121,7 @@ export function Composer({ disabled, onSend, backendUrl, sessionId, ensureSessio
 
   const hasText = value.trim().length > 0 || textAttachments.length > 0;
   const sendDisabled = disabled || !hasText;
+  const showStop = Boolean(isRunning && onStop);
 
   return (
     <div className="border-t border-border bg-background px-4 py-3">
@@ -183,19 +198,34 @@ export function Composer({ disabled, onSend, backendUrl, sessionId, ensureSessio
               ) : null}
             </div>
 
-            <Button
-              type="button"
-              size="icon"
-              aria-label="Send message"
-              className="size-8 rounded-full"
-              onClick={(e) => {
-                e.stopPropagation();
-                submit();
-              }}
-              disabled={sendDisabled}
-            >
-              <ArrowUp className="size-[1.15rem]" />
-            </Button>
+            {showStop ? (
+              <Button
+                type="button"
+                size="icon"
+                aria-label="Stop generating"
+                className="size-8 rounded-full"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStop?.();
+                }}
+              >
+                <Square className="size-[0.9rem] fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="icon"
+                aria-label="Send message"
+                className="size-8 rounded-full"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  submit();
+                }}
+                disabled={sendDisabled}
+              >
+                <ArrowUp className="size-[1.15rem]" />
+              </Button>
+            )}
           </div>
         </div>
 

@@ -25,6 +25,11 @@ export interface UseAgentChatOptions {
   agentId: string;
   /** No session yet (still being created) → the hook stays inert; `sendMessage` no-ops. */
   sessionId: string | null;
+  /** Prior turns to seed the conversation with on mount / session switch, so a
+   * page refresh doesn't drop the history (see `useAgentHistory`). Read once at
+   * `HttpAgent` build time — pass it already resolved for `sessionId`, and only
+   * flip `sessionId` non-null once it is (the hook is memoised on `sessionId`). */
+  initialMessages?: Message[];
 }
 
 export interface UseAgentChatResult {
@@ -35,12 +40,25 @@ export interface UseAgentChatResult {
   isRunning: boolean;
   error: string | null;
   sendMessage: (text: string) => void;
+  stop: () => void;
 }
 
-export function useAgentChat({ backendUrl, agentId, sessionId }: UseAgentChatOptions): UseAgentChatResult {
+export function useAgentChat({
+  backendUrl,
+  agentId,
+  sessionId,
+  initialMessages,
+}: UseAgentChatOptions): UseAgentChatResult {
   const url = useMemo(
     () => (sessionId ? `${backendUrl}/agents/${agentId}?session_id=${encodeURIComponent(sessionId)}` : null),
     [backendUrl, agentId, sessionId],
   );
-  return useAgentStream({ url, threadId: sessionId });
+  const interruptUrl = useMemo(
+    () =>
+      sessionId
+        ? `${backendUrl}/agents/${agentId}/interrupt?session_id=${encodeURIComponent(sessionId)}`
+        : null,
+    [backendUrl, agentId, sessionId],
+  );
+  return useAgentStream({ url, interruptUrl, threadId: sessionId, initialMessages });
 }

@@ -53,7 +53,7 @@ backend/
 ```bash
 cd backend
 uv sync
-docker build -f ../docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest ..
+docker build -f ../docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest .
 ```
 
 Env vars live in one shared file at the repo root (`cp .env.example .env` from there, then fill in `OPENROUTER_API_KEY`) — `backend/.env` is a committed symlink pointing at it, so `uv run`/pydantic-settings pick it up with no extra setup.

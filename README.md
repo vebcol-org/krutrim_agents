@@ -100,7 +100,7 @@ cp .env.example .env   # then fill in OPENROUTER_API_KEY — one shared file, se
 
 cd backend
 uv sync
-docker build -f ../docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest ..
+docker build -f ../docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest .
 cd ..
 ```
 

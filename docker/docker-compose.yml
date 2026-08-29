@@ -83,7 +83,11 @@ services:
         required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
-      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      # Identity path: same value the host bind-mount targets (see volumes
+      # below). backend drives the *host* Docker daemon over the mounted
+      # socket, so sandbox bind-mount sources — derived from STORAGE_ROOT —
+      # must be paths the host daemon can resolve, not a container-only /data.
+      KRUTRIM_AGENT_STORAGE_ROOT: ${HOME}/.krutrim_agent
       # Vector store: faisslite (default) or qdrant — a pure RUNTIME switch (no
       # rebuild; both clients ship in the image). In .env.prod set
       # KRUTRIM_AGENT_VECTOR_STORE_BACKEND=qdrant + COMPOSE_PROFILES=qdrant +
@@ -101,7 +105,7 @@ services:
       # krutrim_agent_management/local.py's STORAGE_ROOT layout) — bind-mounted to
       # your real home dir so it survives `docker compose down`/rebuilds,
       # not just container restarts.
-      - ${HOME}/.krutrim_agent:/data
+      - ${HOME}/.krutrim_agent:${HOME}/.krutrim_agent
       # Provider settings + per-agent run transcripts (gitignored, written
       # at runtime) — same reasoning.
       - ../backend/harness/memory:/app/harness/memory
@@ -150,7 +154,9 @@ services:
         required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
-      KRUTRIM_AGENT_STORAGE_ROOT: /data
+      # Identity path — same reasoning as `backend` above (the reaper also
+      # drives the host Docker daemon to tear sandbox containers down).
+      KRUTRIM_AGENT_STORAGE_ROOT: ${HOME}/.krutrim_agent
       LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
       OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
@@ -158,7 +164,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Same STORAGE_ROOT as `backend` — the reaper scans/updates
       # containers.db, so both processes must point at the same data.
-      - ${HOME}/.krutrim_agent:/data
+      - ${HOME}/.krutrim_agent:${HOME}/.krutrim_agent
       - ../backend/harness/memory:/app/harness/memory
     depends_on:
       redis:

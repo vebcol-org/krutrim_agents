@@ -39,7 +39,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from loguru import logger
 from pydantic import BaseModel
 
-from krutrim_agent_backend.agui import (
+from krutrim_agent_agui import (
     AguiRunContext,
     run_graph_as_agui,
 )

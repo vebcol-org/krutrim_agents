@@ -37,9 +37,10 @@ export function deleteSession(backendUrl: string, sessionId: string): Promise<vo
   return apiDelete(`${backendUrl}/api/sessions/${sessionId}`);
 }
 
-/** `GET /api/sessions/{sessionId}/messages` — used to reload a past conversation. Only ever
- * populated for `Chat`-owned sessions today; an `Agent`-owned session's real history lives in
- * its LangGraph checkpoint, which has no REST route exposing it yet (see the hierarchy plan). */
+/** `GET /api/sessions/{sessionId}/messages` — reload a past conversation's visible turns.
+ * Works for both `Chat`-owned sessions and `Agent`-owned ones (`research` etc.): the backend
+ * reads the session's LangGraph checkpoint — for an in-sandbox agent that's the container run's
+ * checkpoint synced back on release — and reduces it to user/assistant turns. */
 export async function fetchSessionMessages(backendUrl: string, sessionId: string): Promise<ChatApiMessage[]> {
   const data = await apiGet(`${backendUrl}/api/sessions/${sessionId}/messages`, sessionMessagesResponseSchema);
   return data.messages;

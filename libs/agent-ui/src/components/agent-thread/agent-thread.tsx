@@ -29,6 +29,9 @@ export interface AgentThreadProps {
   isRunning: boolean;
   error: string | null;
   sendMessage: (text: string) => void;
+  /** Cancels the in-flight turn (aborts the SSE stream and asks the server to
+   * interrupt an in-sandbox run). */
+  onStop: () => void;
 }
 
 /** Live counterpart to `../agent/chat-thread.tsx`, for the `Agent` (AG-UI/streaming) flow. */
@@ -42,6 +45,7 @@ export function AgentThread({
   isRunning,
   error,
   sendMessage,
+  onStop,
 }: AgentThreadProps) {
   const files = useSessionFiles({ backendUrl, sessionId });
   const [filesOpen, setFilesOpen] = useState(false);
@@ -108,6 +112,8 @@ export function AgentThread({
 
       <Composer
         disabled={isRunning || !sessionId || files.isProcessing}
+        isRunning={isRunning}
+        onStop={onStop}
         onSend={sendMessage}
         backendUrl={backendUrl}
         sessionId={sessionId}

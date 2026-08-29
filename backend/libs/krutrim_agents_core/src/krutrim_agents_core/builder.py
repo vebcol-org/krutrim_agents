@@ -21,7 +21,7 @@ Wiring, in one place:
   tools (the shared `render_content` action) into the model's tool list, and
   routes their execution back to the frontend.
 - `checkpointer`: required by the AG-UI stream translator
-  (`krutrim_agent_backend.agui.run_graph_as_agui` calls `graph.aget_state()` to
+  (`krutrim_agent_agui.run_graph_as_agui` calls `graph.aget_state()` to
   read the final message per `threadId` after a run). Callers
   pass a durable, session-scoped saver (see `api/agent_run.py` — a dedicated
   SQLite file per session, not shared across sessions); an `InMemorySaver()`
@@ -32,6 +32,10 @@ Wiring, in one place:
   (`agents/cross_agent.py`) only to sessions whose sharing policy and peer
   set actually make it usable, without profiles needing to know this tool
   exists at all.
+- `extra_middleware`: `AgentMiddleware` appended after
+  `FrontendToolBridgeMiddleware` — used to attach `RunLoggingMiddleware`
+  (`krutrim_agents_core.harness.run_logging`) so every model/tool call lands
+  in the per-run JSONL transcript, without profiles knowing it exists.
 - `graph_pattern`: a profile may override the compiled topology (see
   `DeepAgentContext` below). Every profile without one keeps compiling
   through `create_deep_agent`'s ReAct loop exactly as before.
@@ -93,7 +97,7 @@ class DeepAgentContext:
       model node; a hand-written node silently won't bridge frontend tools
       unless you replicate that wiring yourself.
     - checkpointer/state compatibility — the AG-UI translator
-      (`krutrim_agent_backend.agui`) calls `graph.aget_state()` keyed by
+      (`krutrim_agent_agui`) calls `graph.aget_state()` keyed by
       `threadId`; a custom graph must be compiled with the same `checkpointer`
       and keep a `messages` key
       shaped like `DeepAgentState` (it uses a `DeltaChannel` reducer to keep
@@ -145,6 +149,7 @@ def build_agent(
     sandbox: BaseSandbox,
     checkpointer: BaseCheckpointSaver | None = None,
     extra_tools: list[BaseTool] | None = None,
+    extra_middleware: list[AgentMiddleware[Any, Any, Any]] | None = None,
 ) -> CompiledStateGraph:
     backend = CompositeBackend(
         default=sandbox,
@@ -169,7 +174,7 @@ def build_agent(
         skills=list(profile.skills_sources),
         memory=list(profile.memory_sources),
         backend=backend,
-        middleware=[FrontendToolBridgeMiddleware()],
+        middleware=[FrontendToolBridgeMiddleware(), *(extra_middleware or [])],
         checkpointer=checkpointer or InMemorySaver(),
         name=profile.key,
     )

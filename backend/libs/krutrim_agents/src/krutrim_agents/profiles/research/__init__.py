@@ -19,6 +19,7 @@ from deepagents.middleware.subagents import SubAgent
 from krutrim_agent_management.config import settings
 from krutrim_agent_rag.middleware import RagInjectionMiddleware
 from krutrim_agent_rag.tool import rag_tool
+from krutrim_agents_core.context_management import build_context_management_middleware
 from krutrim_agents_core.harness.prompts import load_prompt
 from krutrim_agents_core.profile import AgentProfile, RoleDefaults
 from krutrim_agents_core.providers.registry import build_chat_model
@@ -27,6 +28,7 @@ from krutrim_agents_core.tools import fetch_url, web_search
 
 from .agent import create_research_agent
 from .prompts import render_system_prompt
+from .reply_cleanup import ResearchReplyCleanupMiddleware
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -184,12 +186,21 @@ def _make_system_prompt_fn(context: DeepAgentContext):
 
 
 def _graph_pattern(context: DeepAgentContext) -> CompiledStateGraph:
-    middleware = [*context.middleware]
+    # Strip the control-contract preamble from the terminal reply so only the
+    # <output_format> markdown reaches the user (see reply_cleanup.py). Runs
+    # after FrontendToolBridgeMiddleware / RunLoggingMiddleware in context.middleware.
+    middleware = [*context.middleware, ResearchReplyCleanupMiddleware()]
     if settings.rag_injection_enabled:
         # Silent, automatic retrieval on every model call — additive to
         # rag_tool (agent-initiated retrieval), not a replacement. Off by
         # default; see AppSettings.rag_injection_enabled.
         middleware.append(RagInjectionMiddleware())
+    # Keep a long research loop from overflowing the model's context window.
+    # Off by default; strategy via KRUTRIM_AGENT_CONTEXT_MANAGEMENT_STRATEGY.
+    # Appended last so it sees whatever RagInjectionMiddleware added.
+    context_mw = build_context_management_middleware(context.model)
+    if context_mw is not None:
+        middleware.append(context_mw)
     return create_research_agent(
         model=context.model,
         tools=context.tools,
@@ -215,25 +226,25 @@ register_profile(
                 provider="openrouter",
                 model=settings.default_model,
                 temperature=0.3,
-                max_tokens=1_000_000,
+                max_tokens=32_768,
             ),
             "researcher":  RoleDefaults(
                 provider="openrouter",
                 model=settings.default_model,
                 temperature=0.3,
-                max_tokens=1_000_000,
+                max_tokens=32_768,
             ),
             "critic":  RoleDefaults(
                 provider="openrouter",
                 model=settings.default_model,
                 temperature=0.3,
-                max_tokens=1_000_000,
+                max_tokens=32_768,
             ),
             "writer":  RoleDefaults(
                 provider="openrouter",
                 model=settings.default_model,
                 temperature=0.3,
-                max_tokens=1_000_000,
+                max_tokens=32_768,
             ),
         },
         # Static fallback/doc string only — build_agent() calls graph_pattern

@@ -8,7 +8,7 @@ agent-profile registry.
 
 from __future__ import annotations
 
-from krutrim_agent_backend.agui.plugins import AguiPlugin
+from krutrim_agent_agui.plugins import AguiPlugin
 
 _EXTRA: list[AguiPlugin] = []
 

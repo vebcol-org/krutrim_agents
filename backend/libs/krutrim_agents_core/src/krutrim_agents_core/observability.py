@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 @lru_cache(maxsize=1)
 def get_langfuse_handler() -> CallbackHandler | None:
-    if not settings.dev_mode:
+    if not settings.dev_mode or not settings.langfuse_enabled:
         return None
     if not (settings.langfuse_public_key and settings.langfuse_secret_key):
         logger.warning(

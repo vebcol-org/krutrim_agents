@@ -21,6 +21,7 @@ from langgraph.config import get_config
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import get_runtime
+from langgraph.utils.runnable import RunnableCallable
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -73,6 +74,38 @@ def _run_state_hooks(
     return updates
 
 
+async def _arun_state_hooks(
+    middlewares: Sequence[AgentMiddleware], hook_name: str, state: dict[str, Any]
+) -> dict[str, Any]:
+    """Async twin of `_run_state_hooks`: prefer a middleware's `a<hook>` override
+    (awaited), fall back to its sync override. Used by the async graph path so a
+    hook never forces a sync call into the async-only checkpointer."""
+    runtime = get_runtime()
+    ahook = f"a{hook_name}"
+    updates: dict[str, Any] = {}
+    for mw in middlewares:
+        if _overrides(mw, ahook):
+            name = ahook
+            result = getattr(mw, name)(
+                {**state, **updates},
+                runtime,
+                **({"config": get_config()} if _hook_accepts_config(mw, name) else {}),
+            )
+            result = await result
+        elif _overrides(mw, hook_name):
+            name = hook_name
+            result = getattr(mw, name)(
+                {**state, **updates},
+                runtime,
+                **({"config": get_config()} if _hook_accepts_config(mw, name) else {}),
+            )
+        else:
+            continue
+        if result:
+            updates.update(result)
+    return updates
+
+
 def _compose_wrap_model_call(
     middlewares: Sequence[AgentMiddleware], base_handler
 ) -> Any:
@@ -82,6 +115,22 @@ def _compose_wrap_model_call(
 
         def step(request: ModelRequest, _next=chain, _mw=mw) -> ModelResponse:
             return _mw.wrap_model_call(request, _next)
+
+        chain = step
+    return chain
+
+
+def _compose_awrap_model_call(
+    middlewares: Sequence[AgentMiddleware], abase_handler
+) -> Any:
+    """Async twin of `_compose_wrap_model_call` — chains `awrap_model_call`."""
+    chain = abase_handler
+    for mw in reversed(
+        [m for m in middlewares if _overrides(m, "awrap_model_call")]
+    ):
+
+        async def step(request: ModelRequest, _next=chain, _mw=mw) -> ModelResponse:
+            return await _mw.awrap_model_call(request, _next)
 
         chain = step
     return chain
@@ -106,6 +155,29 @@ def _compose_wrap_tool_call(middlewares: Sequence[AgentMiddleware]):
     return composed
 
 
+def _compose_awrap_tool_call(middlewares: Sequence[AgentMiddleware]):
+    """Async twin of `_compose_wrap_tool_call`, passed to `ToolNode` as
+    `awrap_tool_call`. Without it `ToolNode`'s async path falls back to the sync
+    `wrap_tool_call` + a sync tool executor — which runs async-only tools and any
+    nested subagent graph (sharing the async checkpointer) synchronously on the
+    event loop thread, raising `AsyncSqliteSaver` / `StructuredTool` errors."""
+    wrapping = [m for m in middlewares if _overrides(m, "awrap_tool_call")]
+    if not wrapping:
+        return None
+
+    async def composed(request: ToolCallRequest, handler):
+        chain = handler
+        for mw in reversed(wrapping):
+
+            async def step(req: ToolCallRequest, _next=chain, _mw=mw):
+                return await _mw.awrap_tool_call(req, _next)
+
+            chain = step
+        return await chain(request)
+
+    return composed
+
+
 def _normalize_model_result(result) -> ModelResponse:
     """`wrap_model_call` handlers may return `ModelResponse | AIMessage | ExtendedModelResponse`."""
     if isinstance(result, AIMessage):
@@ -125,22 +197,27 @@ def _make_model_node(
     system_prompt: str | None,
     system_prompt_fn: Callable[[dict[str, Any]], str] | None = None,
 ):
-    def base_handler(request: ModelRequest) -> ModelResponse:
-        messages: list[AnyMessage] = (
+    def _messages(request: ModelRequest) -> list[AnyMessage]:
+        return (
             [request.system_message] if request.system_message else []
         ) + request.messages
+
+    def base_handler(request: ModelRequest) -> ModelResponse:
         bound_model = (
             request.model.bind_tools(request.tools) if request.tools else request.model
         )
-        ai_message = bound_model.invoke(messages)
-        return ModelResponse(result=[ai_message])
+        return ModelResponse(result=[bound_model.invoke(_messages(request))])
+
+    async def abase_handler(request: ModelRequest) -> ModelResponse:
+        bound_model = (
+            request.model.bind_tools(request.tools) if request.tools else request.model
+        )
+        return ModelResponse(result=[await bound_model.ainvoke(_messages(request))])
 
     wrap_chain = _compose_wrap_model_call(middlewares, base_handler)
+    awrap_chain = _compose_awrap_model_call(middlewares, abase_handler)
 
-    def model_node(state: dict[str, Any]) -> dict[str, Any]:
-        before_updates = _run_state_hooks(middlewares, "before_model", state)
-        working_state = {**state, **before_updates}
-
+    def _request(working_state: dict[str, Any]) -> ModelRequest:
         # `system_prompt_fn`, when supplied, re-renders the prompt from live
         # state on every model call — used by the research profile so its
         # Runtime Context block (research_state/known/unknown information)
@@ -150,8 +227,7 @@ def _make_model_node(
         prompt_text = (
             system_prompt_fn(working_state) if system_prompt_fn else system_prompt
         )
-
-        request = ModelRequest(
+        return ModelRequest(
             model=model,
             messages=working_state["messages"],
             system_message=SystemMessage(content=prompt_text) if prompt_text else None,
@@ -159,12 +235,24 @@ def _make_model_node(
             state=working_state,
             runtime=get_runtime(),
         )
-        response = _normalize_model_result(wrap_chain(request))
 
+    def model_node(state: dict[str, Any]) -> dict[str, Any]:
+        before_updates = _run_state_hooks(middlewares, "before_model", state)
+        working_state = {**state, **before_updates}
+        response = _normalize_model_result(wrap_chain(_request(working_state)))
         after_updates = _run_state_hooks(middlewares, "after_model", working_state)
         return {**before_updates, **after_updates, "messages": response.result}
 
-    return model_node
+    async def amodel_node(state: dict[str, Any]) -> dict[str, Any]:
+        before_updates = await _arun_state_hooks(middlewares, "before_model", state)
+        working_state = {**state, **before_updates}
+        response = _normalize_model_result(await awrap_chain(_request(working_state)))
+        after_updates = await _arun_state_hooks(
+            middlewares, "after_model", working_state
+        )
+        return {**before_updates, **after_updates, "messages": response.result}
+
+    return RunnableCallable(model_node, amodel_node, name="model")
 
 
 def _route_after_model(state: dict[str, Any]) -> str:
@@ -222,7 +310,12 @@ def create_research_agent(
     graph = StateGraph(graph_state_schema, context_schema=context_schema)
 
     graph.add_node(
-        "before_agent", lambda state: _run_state_hooks(stack, "before_agent", state)
+        "before_agent",
+        RunnableCallable(
+            lambda state: _run_state_hooks(stack, "before_agent", state),
+            lambda state: _arun_state_hooks(stack, "before_agent", state),
+            name="before_agent",
+        ),
     )
     graph.add_node(
         "model",
@@ -233,7 +326,12 @@ def create_research_agent(
 
     if all_tools:
         graph.add_node(
-            "tools", ToolNode(all_tools, wrap_tool_call=_compose_wrap_tool_call(stack))
+            "tools",
+            ToolNode(
+                all_tools,
+                wrap_tool_call=_compose_wrap_tool_call(stack),
+                awrap_tool_call=_compose_awrap_tool_call(stack),
+            ),
         )
         graph.add_conditional_edges(
             "model", _route_after_model, {"tools": "tools", END: END}

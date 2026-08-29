@@ -1,5 +1,6 @@
 export * from './use-agent-stream';
 export * from './use-agent-chat';
+export * from './use-agent-history';
 export * from './use-chat-stream';
 export * from './use-blur-status-title';
 export * from './use-chat';

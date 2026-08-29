@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 from krutrim_agent_management.models import (
@@ -290,3 +291,38 @@ class Storage(ABC):
         self, session_id: str, files: list[tuple[str, bytes]]
     ) -> None:
         """Overwrites (or creates) each given path in the session's workspace mirror."""
+
+    # -- Per-run scoped export / import (in-sandbox agent runtime) --------
+    # `export_scope` writes a self-contained snapshot of exactly ONE
+    # project/agent/session into a staging directory the sandbox container
+    # bind-mounts — nothing from any other project, agent, or session, and no
+    # provider credentials. `import_scope` folds the container's writes
+    # (checkpoint, usage, workspace, run logs) back in.
+
+    @abstractmethod
+    async def export_scope(
+        self,
+        project_id: str,
+        agent_id: str,
+        session_id: str,
+        staging_dir: Path,
+    ) -> None:
+        """Populate ``staging_dir`` with:
+
+        - ``store/`` — a mini storage root (`LocalStorage`-openable) holding
+          only this project/agent/session's rows + the session's checkpoint,
+          usage, and RAG manifest, plus the project's ``MEMORY.md``.
+        - ``workspace/`` — the session's ``/workspace`` mirror contents.
+        - ``out/`` — created empty; the container flushes its writes here.
+
+        Raises ``KeyError`` if any of the three ids is unknown or they don't
+        form a valid project→agent→session chain.
+        """
+
+    @abstractmethod
+    async def import_scope(self, session_id: str, staging_dir: Path) -> None:
+        """Fold a finished container's ``staging_dir/out/`` and
+        ``staging_dir/workspace/`` back into this session's stored state
+        (checkpoint sqlite, ``usage.json``, RAG manifest, workspace mirror,
+        and any ``runs/*.jsonl`` transcripts). Missing pieces are skipped, not
+        an error. Raises ``KeyError`` if ``session_id`` is unknown."""
