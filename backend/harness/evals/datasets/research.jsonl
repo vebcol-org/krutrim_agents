@@ -1,2 +1,0 @@
-{"id": "quick-fact", "prompt": "What year was the FastAPI Python framework first released?", "expect_render_content": false, "required_substrings": []}
-{"id": "full-report", "prompt": "Research the current state of solid-state EV batteries and give me a report.", "expect_render_content": true, "required_substrings": ["Sources", "Summary"]}
