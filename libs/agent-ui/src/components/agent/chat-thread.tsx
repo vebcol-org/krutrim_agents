@@ -6,7 +6,6 @@ import { Settings } from 'lucide-react';
 
 import type { ReasoningEntry } from '../../hooks/use-agent-stream';
 import { useSessionFiles } from '../../hooks/use-session-files';
-import { SandboxStatus } from '../sandbox-status';
 import { Composer } from './composer';
 import { FilesButton, FilesDrawer } from './files-drawer';
 import { MessageList } from './message-list';
@@ -67,7 +66,6 @@ export function ChatThread({
           <span className="truncate font-mono text-xs text-muted-foreground">
             {activeChat?.display_name ?? 'New chat'}
           </span>
-          <SandboxStatus backendUrl={backendUrl} ownerId={activeSessionId} />
         </div>
         {activeChat && (
           <div className="flex items-center gap-1.5">

@@ -12,6 +12,7 @@ import { ProjectTreeNode } from './project-tree-node';
 export interface HistoryRailProps {
   collapsed: boolean;
   onToggle: () => void;
+  backendUrl: string;
   workspace: UseWorkspaceResult;
   /** Bridges a chat-tree selection into `chat-slice`'s message-loading flow — called in
    * addition to `workspace.selectChat`, which only updates tree highlighting/selection kind.
@@ -25,7 +26,7 @@ type ActiveSheet =
   | { kind: 'new-agent'; defaultProjectId: string | null }
   | { kind: 'move-chat'; chat: Chat };
 
-export function HistoryRail({ collapsed, onToggle, workspace, onOpenChatSession }: HistoryRailProps) {
+export function HistoryRail({ collapsed, onToggle, backendUrl, workspace, onOpenChatSession }: HistoryRailProps) {
   const [activeSheet, setActiveSheet] = useState<ActiveSheet | null>(null);
 
   function handleSelectChat(chatId: string) {
@@ -186,6 +187,7 @@ export function HistoryRail({ collapsed, onToggle, workspace, onOpenChatSession 
       )}
       {activeSheet?.kind === 'new-agent' && (
         <NewAgentSheet
+          backendUrl={backendUrl}
           projects={workspace.projects}
           agentProfiles={workspace.agentProfiles}
           defaultProjectId={activeSheet.defaultProjectId}

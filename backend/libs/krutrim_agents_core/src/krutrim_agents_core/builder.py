@@ -44,6 +44,7 @@ Wiring, in one place:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -66,7 +67,7 @@ if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
 
     from krutrim_agents_core.profile import AgentProfile
-    from krutrim_agents_core.providers.store import ProviderStore
+    from krutrim_agents_core.providers.base import ModelSettings
 
 
 @dataclass
@@ -145,12 +146,16 @@ class DeepAgentContext:
 
 def build_agent(
     profile: AgentProfile,
-    store: ProviderStore,
+    models: Mapping[str, ModelSettings],
     sandbox: BackendProtocol,
     checkpointer: BaseCheckpointSaver | None = None,
     extra_tools: list[BaseTool] | None = None,
     extra_middleware: list[AgentMiddleware[Any, Any, Any]] | None = None,
 ) -> CompiledStateGraph:
+    """`models` is the resolved `{role: ModelSettings}` map for this profile
+    (see `krutrim_agents_core.providers.resolver.resolve_models`) — one entry
+    per declared role, already merged from profile defaults + the agent
+    instance's + the session's overrides by the caller."""
     backend = CompositeBackend(
         default=sandbox,
         routes={
@@ -166,11 +171,12 @@ def build_agent(
         },
     )
 
+    main_settings = models.get("main") or next(iter(models.values()))
     context = DeepAgentContext(
-        model=build_chat_model(store.get(profile.key, "main")),
+        model=build_chat_model(main_settings),
         tools=[*profile.tools(), *(extra_tools or [])],
         system_prompt=profile.main_system_prompt,
-        subagents=profile.subagents(store),
+        subagents=profile.subagents(models),
         skills=list(profile.skills_sources),
         memory=list(profile.memory_sources),
         backend=backend,

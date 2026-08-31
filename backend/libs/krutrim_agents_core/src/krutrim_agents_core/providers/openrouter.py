@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from langchain_openai import ChatOpenAI
 from pydantic import Field
 
 from krutrim_agents_core.providers.base import (
@@ -13,6 +12,9 @@ from krutrim_agents_core.providers.base import (
     Provider,
     ProviderConfigError,
 )
+
+if TYPE_CHECKING:
+    from langchain_openai import ChatOpenAI
 
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
 
@@ -33,6 +35,10 @@ class OpenRouterProvider(Provider):
     key = "openrouter"
 
     def build_chat_model(self, settings: ModelSettings) -> ChatOpenAI:
+        # Deferred import — the SDK loads on first model build, not at startup,
+        # so an optional-dep provider can't break the whole app on import.
+        from langchain_openai import ChatOpenAI
+
         assert isinstance(settings, OpenRouterModelSettings)
         api_key = os.environ.get(settings.api_key_env)
         if not api_key:

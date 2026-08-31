@@ -12,7 +12,6 @@ owns.
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -35,11 +34,6 @@ RUN_INPUT_BODY = {
     "context": [],
     "forwardedProps": {},
 }
-
-
-class FakeProviderStore:
-    def get(self, agent_key: str, role: str):
-        return SimpleNamespace(provider="openrouter", model="test-model")
 
 
 async def _make_agent(storage: LocalStorage, agent_key: str = "research"):
@@ -188,13 +182,12 @@ def wired_app(tmp_path, monkeypatch):
     monkeypatch.setattr(
         agent_run,
         "build_agent",
-        lambda profile, store, sandbox, checkpointer=None, extra_tools=None, extra_middleware=None: object(),
+        lambda profile, models, sandbox, checkpointer=None, extra_tools=None, extra_middleware=None: object(),
     )
     _translator_calls.clear()
 
     app = FastAPI()
     app.state.storage = LocalStorage(tmp_path)
-    app.state.provider_store = FakeProviderStore()
     app.state.sandbox_registry = FakeSandboxRegistry()
     mount_agent_run_endpoint(app)
     return app

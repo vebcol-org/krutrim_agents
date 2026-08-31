@@ -10,43 +10,70 @@ export interface AgentMessageListProps {
   messages: Message[];
   /** Live step / tool-call / reasoning trace for the current turn. */
   trace?: TraceStep[];
+  /** The latest assistant turn's working narration, as decided by the agent's
+   * turn splitter (`deriveAssistantTurn`). `''` for agents with no work-log
+   * concept. The finished output goes to the output panel instead. */
+  narration?: string;
   isRunning: boolean;
   error: string | null;
+  /** Run stopped by the user / dropped connection — shown as a neutral notice. */
+  interrupted?: boolean;
 }
 
-/** Auto-scrolls to the bottom whenever `messages` or `trace` changes. Only ever
- * shows `user`/`assistant` turns — a run can also produce `system`/`tool`/
- * `reasoning` messages in the underlying list, not meant for display here; the
- * agent's thinking and tool use surface in the `AgentActivity` block instead. */
-export function AgentMessageList({ messages, trace = [], isRunning, error }: AgentMessageListProps) {
+/**
+ * The middle column is the **work log**, not the answer: user turns, the
+ * `AgentActivity` block (thinking / tool calls / steps), and the assistant's
+ * running `narration`. The finished output is never rendered here — it goes to
+ * the output panel (`OutputPanel`, via the agent's turn splitter — see
+ * `deriveAssistantTurn`). Auto-scrolls on new messages/trace.
+ */
+export function AgentMessageList({
+  messages,
+  trace = [],
+  narration,
+  isRunning,
+  error,
+  interrupted,
+}: AgentMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, trace]);
+  }, [messages, trace, narration]);
 
-  const visible = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
-  const lastAssistantIdx = visible.map((m) => m.role).lastIndexOf('assistant');
+  const userTurns = messages.filter((m) => m.role === 'user');
+  const hasAnyTurn = messages.some((m) => m.role === 'user' || m.role === 'assistant');
 
   return (
     <ScrollArea ref={scrollRef} className="flex-1 px-5 py-4">
       <div className="mx-auto flex max-w-2xl flex-col gap-3">
-        {visible.length === 0 && !isRunning && (
+        {!hasAnyTurn && !isRunning && (
           <p className="text-sm text-muted-foreground">Ask this agent something to get started.</p>
         )}
-        {visible.map((message, idx) => {
-          const isLastAssistant = idx === lastAssistantIdx;
-          return (
-            <Fragment key={message.id}>
-              {isLastAssistant && <AgentActivity trace={trace} isRunning={isRunning} />}
-              <AgentMessageBubble message={message} streaming={isLastAssistant && isRunning} />
-            </Fragment>
-          );
-        })}
-        {/* No assistant turn yet — show the activity block (or a bare hint) at the end. */}
-        {lastAssistantIdx === -1 && trace.length > 0 && <AgentActivity trace={trace} isRunning={isRunning} />}
-        {isRunning && lastAssistantIdx === -1 && trace.length === 0 && (
+        {userTurns.map((message, idx) => (
+          <Fragment key={message.id}>
+            <AgentMessageBubble message={message} />
+            {idx === userTurns.length - 1 && (
+              <>
+                {(trace.length > 0 || isRunning) && (
+                  <AgentActivity trace={trace} isRunning={isRunning} />
+                )}
+                {narration && (
+                  <div className="w-full max-w-[85%] whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    {narration}
+                  </div>
+                )}
+              </>
+            )}
+          </Fragment>
+        ))}
+        {isRunning && trace.length === 0 && !narration && (
           <p className="font-mono text-xs text-muted-foreground">thinking…</p>
+        )}
+        {interrupted && !error && (
+          <p className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
+            You stopped the response. Ask a follow-up or send a new message to continue.
+          </p>
         )}
         {error && (
           <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">

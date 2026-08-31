@@ -47,6 +47,7 @@ from krutrim_agents_core.cross_agent import (
 from krutrim_agents_core.harness.recording_backend import RecordingFilesystemBackend
 from krutrim_agents_core.harness.run_logging import RunLoggingMiddleware
 from krutrim_agents_core.harness.runs import RunLogger
+from krutrim_agents_core.providers.resolver import resolve_models
 from krutrim_agents_core.registry import get_profile
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from loguru import logger
@@ -118,8 +119,17 @@ def mount_agent_run_endpoint(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         session = await _get_or_create_run_session(storage, agent, session_id)
 
-        provider_store = request.app.state.provider_store
         sandbox_registry = request.app.state.sandbox_registry
+
+        # Effective per-role models: profile defaults < this agent instance's
+        # overrides < this session's overrides (chat-composer model switcher).
+        agent_overrides = await storage.read_agent_model_settings(agent.agent_id) or {}
+        session_overrides = await storage.read_model_settings(session.session_id) or {}
+        models = resolve_models(
+            profile,
+            agent_overrides=agent_overrides,
+            session_overrides=session_overrides,
+        )
 
         encoder = EventEncoder(accept=request.headers.get("accept"))
         checkpoint_path = (
@@ -140,7 +150,6 @@ def mount_agent_run_endpoint(app: FastAPI) -> None:
                     [
                         message_agent_tool(
                             store=storage,
-                            provider_store=provider_store,
                             sandbox_registry=sandbox_registry,
                             project_id=agent.project_id,
                             caller_session_id=session.session_id,
@@ -153,7 +162,7 @@ def mount_agent_run_endpoint(app: FastAPI) -> None:
                 run_logger = RunLogger(agent.agent_key, session.session_id)
                 graph = build_agent(
                     profile,
-                    provider_store,
+                    models,
                     RecordingFilesystemBackend(handle.backend, run_logger),
                     checkpointer=checkpointer,
                     extra_tools=extra_tools,

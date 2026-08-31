@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { Agent, AgentMeta, Chat, Project } from '@krutrim_agent/shared-types';
+import type { Agent, AgentMeta, Chat, ModelSelection, Project } from '@krutrim_agent/shared-types';
 
 import {
   createNewAgent,
@@ -43,6 +43,9 @@ export interface UseWorkspaceResult {
   expandedProjectIds: string[];
   selection: WorkspaceSelection | null;
   isLoading: boolean;
+  /** `false` until the first workspace fetch settles — URL sync waits on this
+   * before deciding a deep-linked agent/chat is missing. */
+  hasLoaded: boolean;
   error: string | null;
   toggleProjectExpanded: (projectId: string) => void;
   createProject: (title: string) => void;
@@ -50,15 +53,23 @@ export interface UseWorkspaceResult {
   deleteProject: (projectId: string) => void;
   /** `newProjectTitle` set → creates that project first, then the agent inside it (see
    * `NewAgentSheet`'s inline "create new project" flow). */
-  createAgent: (params: { projectId: string; newProjectTitle?: string; agentKey: string; displayName: string }) => void;
+  createAgent: (params: {
+    projectId: string;
+    newProjectTitle?: string;
+    agentKey: string;
+    displayName: string;
+    roleModels?: Record<string, ModelSelection>;
+  }) => void;
   renameAgentName: (projectId: string, agentId: string, displayName: string) => void;
   deleteAgent: (projectId: string, agentId: string) => void;
+  /** `sessionId` resumes that specific session when it still exists (deep link /
+   * reload); omit it to resume the agent's most recent session. */
+  openAgent: (agentId: string, sessionId?: string | null) => void;
   createChat: (displayName: string, projectId?: string | null) => void;
   renameChatName: (chatId: string, displayName: string) => void;
   deleteChat: (chatId: string) => void;
   moveChat: (chatId: string, projectId: string | null) => void;
   selectChat: (chatId: string) => void;
-  openAgent: (agentId: string) => void;
 }
 
 export function useWorkspace({ backendUrl }: UseWorkspaceOptions): UseWorkspaceResult {
@@ -79,6 +90,7 @@ export function useWorkspace({ backendUrl }: UseWorkspaceOptions): UseWorkspaceR
     expandedProjectIds: state.expandedProjectIds,
     selection: state.selection,
     isLoading: state.isLoading,
+    hasLoaded: state.hasLoaded,
     error: state.error,
     toggleProjectExpanded: (projectId) => dispatch(toggleProjectExpandedAction(projectId)),
     createProject: (title) => {
@@ -90,7 +102,7 @@ export function useWorkspace({ backendUrl }: UseWorkspaceOptions): UseWorkspaceR
     deleteProject: (projectId) => {
       dispatch(deleteProjectById(projectId));
     },
-    createAgent: ({ projectId, newProjectTitle, agentKey, displayName }) => {
+    createAgent: ({ projectId, newProjectTitle, agentKey, displayName, roleModels }) => {
       if (newProjectTitle) {
         // Create the project first, then the agent inside it — the New Agent
         // sheet's "+ Create new project…" option collapses both steps into
@@ -98,11 +110,11 @@ export function useWorkspace({ backendUrl }: UseWorkspaceOptions): UseWorkspaceR
         void dispatch(createNewProject(newProjectTitle))
           .unwrap()
           .then((project) => {
-            dispatch(createNewAgent({ projectId: project.project_id, agentKey, displayName }));
+            dispatch(createNewAgent({ projectId: project.project_id, agentKey, displayName, roleModels }));
           });
         return;
       }
-      dispatch(createNewAgent({ projectId, agentKey, displayName }));
+      dispatch(createNewAgent({ projectId, agentKey, displayName, roleModels }));
     },
     renameAgentName: (projectId, agentId, displayName) => {
       dispatch(renameAgent({ projectId, agentId, displayName }));
@@ -125,8 +137,8 @@ export function useWorkspace({ backendUrl }: UseWorkspaceOptions): UseWorkspaceR
     selectChat: (chatId) => {
       dispatch(selectChatAction(chatId));
     },
-    openAgent: (agentId) => {
-      dispatch(openAgentThunk(agentId));
+    openAgent: (agentId, sessionId) => {
+      dispatch(openAgentThunk({ agentId, sessionId }));
     },
   };
 }

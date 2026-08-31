@@ -220,6 +220,34 @@ class Storage(ABC):
     @abstractmethod
     async def write_usage(self, session_id: str, data: dict[str, Any]) -> None: ...
 
+    # -- Model settings overrides --------------------------------------
+    # Per-role provider/model picks, shaped `{role: {provider, model,
+    # temperature?, max_tokens?}}` and possibly partial per role. Two scopes:
+    # per agent instance (`agents/{agent_id}/model_settings.json`, set from the
+    # agent settings panel) and per session (`sessions/{session_id}/
+    # model_settings.json`, the chat-composer model switcher). Neither is the
+    # source of truth for *what can be picked* (that's the static
+    # `krutrim_agents_core.providers.catalog`); `providers.resolver` merges
+    # profile defaults < agent < session into the effective `ModelSettings`.
+
+    @abstractmethod
+    async def read_agent_model_settings(self, agent_id: str) -> dict[str, Any] | None:
+        """Returns None if this agent instance has no per-role overrides."""
+
+    @abstractmethod
+    async def write_agent_model_settings(
+        self, agent_id: str, data: dict[str, Any]
+    ) -> None: ...
+
+    @abstractmethod
+    async def read_model_settings(self, session_id: str) -> dict[str, Any] | None:
+        """Returns None if this session has no per-role overrides."""
+
+    @abstractmethod
+    async def write_model_settings(
+        self, session_id: str, data: dict[str, Any]
+    ) -> None: ...
+
     # -- RAG document manifest (sessions/{session_id}/rag/manifest.json) --
     # A small append-only record of every document ingested into a session's
     # vector index (`document_id`, `title`, `filename`, `source_path`,

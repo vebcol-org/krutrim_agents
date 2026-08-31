@@ -154,6 +154,14 @@ class _LocalStorageImpl:
         return f"sessions/{session_id}/usage.json"
 
     @staticmethod
+    def _model_settings_key(session_id: str) -> str:
+        return f"sessions/{session_id}/model_settings.json"
+
+    @staticmethod
+    def _agent_model_settings_key(agent_id: str) -> str:
+        return f"agents/{agent_id}/model_settings.json"
+
+    @staticmethod
     def _cache_key(project_id: str, namespace: str, key: str) -> str:
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
         return f"projects/{project_id}/cache/{namespace}/{digest}.json"
@@ -389,6 +397,7 @@ class _LocalStorageImpl:
         self.get_agent(agent_id)  # raises KeyError if unknown
         for session in self.list_sessions("agent", agent_id):
             self.delete_session(session.session_id)
+        self._blobs.delete(self._agent_model_settings_key(agent_id))
         with self._agents_db_lock, self._connect(self._agents_db_path) as conn:
             conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
 
@@ -758,6 +767,24 @@ class _LocalStorageImpl:
         )
         self._blobs.write(self._usage_key(session_id), payload)
 
+    # -- model settings overrides -----------------------------------------
+
+    def read_agent_model_settings(self, agent_id: str) -> dict[str, Any] | None:
+        data = self._blobs.read(self._agent_model_settings_key(agent_id))
+        return json.loads(data) if data is not None else None
+
+    def write_agent_model_settings(self, agent_id: str, data: dict[str, Any]) -> None:
+        payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8")
+        self._blobs.write(self._agent_model_settings_key(agent_id), payload)
+
+    def read_model_settings(self, session_id: str) -> dict[str, Any] | None:
+        data = self._blobs.read(self._model_settings_key(session_id))
+        return json.loads(data) if data is not None else None
+
+    def write_model_settings(self, session_id: str, data: dict[str, Any]) -> None:
+        payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8")
+        self._blobs.write(self._model_settings_key(session_id), payload)
+
     # -- rag document manifest --------------------------------------------
 
     @staticmethod
@@ -918,6 +945,12 @@ class _LocalStorageImpl:
         memory = self._blobs.read(self._memory_key(project_id))
         if memory is not None:
             dest._blobs.write(dest._memory_key(project_id), memory)
+
+        agent_models = self._blobs.read(self._agent_model_settings_key(agent_id))
+        if agent_models is not None:
+            dest._blobs.write(
+                dest._agent_model_settings_key(agent_id), agent_models
+            )
 
     def import_scope(self, session_id: str, staging_dir: Path) -> None:
         self.get_session(session_id)  # KeyError if unknown
@@ -1188,6 +1221,30 @@ class LocalStorage(Storage):
 
     async def write_usage(self, session_id: str, data: dict[str, Any]) -> None:
         return await asyncio.to_thread(self._impl.write_usage, session_id, data)
+
+    # -- model settings overrides --------------------------------------
+
+    async def read_agent_model_settings(self, agent_id: str) -> dict[str, Any] | None:
+        return await asyncio.to_thread(
+            self._impl.read_agent_model_settings, agent_id
+        )
+
+    async def write_agent_model_settings(
+        self, agent_id: str, data: dict[str, Any]
+    ) -> None:
+        return await asyncio.to_thread(
+            self._impl.write_agent_model_settings, agent_id, data
+        )
+
+    async def read_model_settings(self, session_id: str) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._impl.read_model_settings, session_id)
+
+    async def write_model_settings(
+        self, session_id: str, data: dict[str, Any]
+    ) -> None:
+        return await asyncio.to_thread(
+            self._impl.write_model_settings, session_id, data
+        )
 
     # -- rag document manifest ------------------------------------------
 

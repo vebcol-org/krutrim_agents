@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { Agent } from '@krutrim_agent/shared-types';
 
 import { useAgentChat, useAgentHistory, useChat, useChatStream, useUrlSync, useWorkspace } from '../../hooks';
-import { clamp, deriveRenderPayload } from '../../utils';
+import { clamp, deriveAssistantTurn } from '../../utils';
 import { AgentThread } from '../agent-thread';
 import { SandboxSettingsPanel, type SandboxSettingsTarget } from '../sandbox-settings-panel';
+import { SettingsPanel } from '../settings-panel';
 import type { AgentProps } from './agent';
 import { ChatThread } from './chat-thread';
 import { HistoryRail } from './history-rail';
@@ -28,6 +29,7 @@ export function AgentLayout({ backendUrl }: AgentProps) {
   const [outputCollapsed, setOutputCollapsed] = useState(true);
   const [outputWidth, setOutputWidth] = useState(OUTPUT_DEFAULT_WIDTH);
   const [sandboxSettingsOpen, setSandboxSettingsOpen] = useState(false);
+  const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
 
   const workspace = useWorkspace({ backendUrl });
   const chat = useChat({ backendUrl });
@@ -76,16 +78,38 @@ export function AgentLayout({ backendUrl }: AgentProps) {
     sessionId: historyReady ? activeAgentSessionId : null,
     initialMessages: agentHistory.messages,
   });
-  const outputPayload = activeAgent ? deriveRenderPayload(agentChat.messages, activeAgent.display_name) : null;
+  // The latest assistant turn is divided by the agent's own splitter (see
+  // `@krutrim_agent/agent-renderers` — `research` splits on `===FINAL_REPORT===`)
+  // into `narration` (middle work-log column) and `output` (the output panel).
+  // `turnFinished` gates the fallback where a marker-less turn that *ended
+  // normally* is taken as the finished output — while streaming, or after a Stop
+  // / a reload of a stopped turn, its text stays entirely in the work log
+  // instead of masquerading as a finished answer. (`lastAssistantInterrupted`
+  // can read stale after a later successful turn, but that turn carries the
+  // marker, so the split is correct regardless.)
+  const turnFinished =
+    !agentChat.isRunning && !agentChat.interrupted && !agentHistory.lastAssistantInterrupted;
+  const assistantTurn = deriveAssistantTurn(
+    agentChat.messages,
+    activeAgent?.agent_key ?? null,
+    activeAgent?.display_name ?? '',
+    { finished: turnFinished },
+  );
+  const outputPayload = activeAgent ? assistantTurn.output : null;
+  const narration = activeAgent ? assistantTurn.narration : '';
+  // Live trace while a run is in flight (or once it has produced steps);
+  // otherwise the trace rebuilt from the checkpoint so a reload still shows the
+  // work log (`useAgentHistory` — tool calls only; steps aren't persisted).
+  const trace =
+    agentChat.isRunning || agentChat.trace.length > 0 ? agentChat.trace : agentHistory.trace;
 
-  // Reveal the output explorer automatically the moment a run finishes with a
-  // final answer — mirrors Claude popping its artifact panel open. Never
-  // auto-closes; a manual toggle afterwards is respected.
+  // Reveal the output explorer automatically once there's assistant output or a
+  // run finishes. Never auto-closes; a manual toggle is respected.
   const wasRunningRef = useRef(false);
   useEffect(() => {
     const justFinished = wasRunningRef.current && !agentChat.isRunning;
     wasRunningRef.current = agentChat.isRunning;
-    if (justFinished && outputPayload) setOutputCollapsed(false);
+    if (outputPayload && (justFinished || agentChat.isRunning)) setOutputCollapsed(false);
   }, [agentChat.isRunning, outputPayload]);
 
   // A fresh session starts with the explorer tucked away again.
@@ -111,6 +135,7 @@ export function AgentLayout({ backendUrl }: AgentProps) {
       <HistoryRail
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((v) => !v)}
+        backendUrl={backendUrl}
         workspace={workspace}
         onOpenChatSession={chat.selectChat}
       />
@@ -121,10 +146,13 @@ export function AgentLayout({ backendUrl }: AgentProps) {
           agent={activeAgent}
           sessionId={activeAgentSessionId}
           onOpenSandboxSettings={() => setSandboxSettingsOpen(true)}
+          onOpenModelSettings={() => setModelSettingsOpen(true)}
           messages={agentChat.messages}
-          trace={agentChat.trace}
+          trace={trace}
+          narration={narration}
           isRunning={agentChat.isRunning}
           error={agentChat.error}
+          interrupted={agentChat.interrupted}
           sendMessage={agentChat.sendMessage}
           onStop={agentChat.stop}
         />
@@ -170,6 +198,15 @@ export function AgentLayout({ backendUrl }: AgentProps) {
           session={sessionForPanel}
           siblingSessions={siblingSessionsForPanel}
           onClose={() => setSandboxSettingsOpen(false)}
+        />
+      )}
+
+      {modelSettingsOpen && activeAgent && (
+        <SettingsPanel
+          backendUrl={backendUrl}
+          agentId={activeAgent.agent_id}
+          agentLabel={activeAgent.display_name}
+          onClose={() => setModelSettingsOpen(false)}
         />
       )}
     </div>

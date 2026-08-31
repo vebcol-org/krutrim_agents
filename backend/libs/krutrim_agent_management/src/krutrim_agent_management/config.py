@@ -261,10 +261,6 @@ class AppSettings(BaseSettings):
         return self.harness_dir / "evals"
 
     @property
-    def provider_settings_path(self) -> Path:
-        return self.memory_dir / "settings.json"
-
-    @property
     def runs_dir(self) -> Path:
         return self.runs_dir_override or (self.memory_dir / "runs")
 

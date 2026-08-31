@@ -25,3 +25,34 @@ export interface AgentRendererProps {
 
 /** A per-agent canvas renderer — full creative control over the content area. */
 export type AgentRendererComponent = (props: AgentRendererProps) => JSX.Element;
+
+/**
+ * How one raw assistant turn is divided between the two views of the shell:
+ *
+ * - `narration` — working text for the middle "work log" column (`''` = none);
+ * - `output` — the finished deliverable for the output panel, or `null` when
+ *   the turn hasn't produced one yet (still streaming / stopped early).
+ *
+ * What counts as "narration" vs "output" is agent-specific — e.g. `research`
+ * splits on a `===FINAL_REPORT===` marker — so each agent registers its own
+ * splitter in `registry.ts` (`getAgentTurnSplitter`); the default treats the
+ * whole turn as output with no narration.
+ */
+export interface AssistantTurnView {
+  narration: string;
+  output: RenderContentPayload | null;
+}
+
+export interface TurnSplitContext {
+  /** The run ended normally — not still streaming, not stopped by the user.
+   *  Lets a splitter decide whether a marker-less turn is a finished answer or
+   *  just a partial log. */
+  finished: boolean;
+  /** The agent instance's display name — used as the output payload's title. */
+  title: string;
+}
+
+/** Pure text → `AssistantTurnView`. No `@ag-ui/client` / `agent-ui` deps: the
+ *  shell flattens the message and picks the latest assistant turn, then calls
+ *  this with the plain string. */
+export type AgentTurnSplitter = (text: string, ctx: TurnSplitContext) => AssistantTurnView;

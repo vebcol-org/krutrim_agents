@@ -10,7 +10,7 @@ export interface OutputPanelProps {
   /** Which registered profile's renderer to use — `null` for the plain
    * `chat` flow (no agent selected), which keeps the placeholder below. */
   agentKey: string | null;
-  /** `null` while there's no assistant output yet (see `deriveRenderPayload`). */
+  /** `null` while there's no finished output yet (see `deriveAssistantTurn`). */
   payload: RenderContentPayload | null;
   /** A run is in flight — shows a "generating" hint instead of the empty state. */
   busy?: boolean;

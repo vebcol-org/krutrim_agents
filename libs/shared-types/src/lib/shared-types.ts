@@ -51,6 +51,60 @@ export interface UpdateSettingsResponse {
   note: string;
 }
 
+/** One selectable provider — mirrors `GET /api/providers`. `available` = its
+ * optional deps are installed; `configured` = its API-key env var is set.
+ * Show it in a picker only when both are true. */
+export interface ProviderCard {
+  key: string;
+  label: string;
+  api_key_env: string;
+  available: boolean;
+  configured: boolean;
+}
+
+export type ModelKind = 'chat' | 'embedding';
+
+/** One selectable model — mirrors an entry of `GET /api/providers/models`.
+ * `id` is the exact string sent back as the model choice. */
+export interface ModelCard {
+  id: string;
+  label: string;
+  provider: string;
+  vendor: string;
+  kind: ModelKind;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  supports_temperature: boolean;
+  supports_vision: boolean;
+  default: boolean;
+}
+
+/** Where a role's effective model came from in the resolver chain. */
+export type ModelSettingsSource = 'session' | 'agent' | 'profile';
+
+/** One role's effective settings + which layer set them — an entry of the
+ * `roles` array returned by the agent/session settings endpoints. */
+export interface RoleModelSettings {
+  role: string;
+  settings: ModelSettings;
+  source: ModelSettingsSource;
+}
+
+export interface RoleModelSettingsList {
+  roles: RoleModelSettings[];
+}
+
+/** Body for `PUT /api/providers/{agents|sessions}/{id}/{role}`. `temperature`
+ * / `max_tokens` are optional partial overrides; `custom` bypasses the
+ * catalog check for a model id not in the static list. */
+export interface ModelSelection {
+  provider: string;
+  model: string;
+  temperature?: number | null;
+  max_tokens?: number | null;
+  custom?: boolean;
+}
+
 /**
  * The shapes the *default* canvas renderer understands. A custom
  * per-agent renderer (see `@krutrim_agent/agent-renderers`) can ignore
@@ -289,16 +343,6 @@ export interface RagDocumentsResponse {
   documents: RagDocument[];
 }
 
-/**
- * SSE payload shape from `GET /api/status/containers/{owner_id}` — mirrors
- * `krutrim_agent_sandbox.status_channel.publish_container_status`'s JSON. `extra`
- * fields (e.g. `ref_count`) vary by transition; only `status` is guaranteed.
- */
-export interface ContainerStatusEvent {
-  status: 'starting' | 'running' | 'idle' | 'tearing_down' | 'stopped' | (string & {});
-  ref_count?: number;
-}
-
 /** SSE payload shape from `GET /api/status/jobs/{job_id}` — mirrors `publish_job_progress`. */
 export interface JobProgressEvent {
   processed: number;
@@ -323,7 +367,24 @@ export interface ChatModelOption {
 /** One turn's worth of chat history, as returned by `GET /api/sessions/{id}/messages`.
  * `POST /api/chat` itself is now an AG-UI SSE stream (`@ag-ui/client`), not JSON —
  * see `libs/agent-ui/src/hooks/use-chat-stream.ts`. */
+/** One tool call from an assistant turn, reconstructed from the checkpoint so a
+ * reloaded conversation can redraw the work-log panel. Mirrors backend `ToolCallView`. */
+export interface ToolCallView {
+  id: string;
+  name: string;
+  /** JSON-encoded call arguments. */
+  args: string;
+  /** The tool's output — absent if the call never returned (run cut off). */
+  result?: string | null;
+}
+
 export interface ChatApiMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** `true` only for an assistant turn stopped mid-generation — its text is a
+   * partial work log, so the UI keeps it out of the finished-report view. */
+  interrupted?: boolean;
+  /** Tools this assistant turn invoked (with results). Feeds the activity trace
+   * on reload; absent for plain text turns. */
+  tool_calls?: ToolCallView[];
 }

@@ -6,12 +6,16 @@ import type {
   Chat,
   ChatApiMessage,
   EmbedResponse,
+  ModelCard,
   ModelSettings,
   Project,
+  ProviderCard,
   ProviderSettingsByRole,
   RagDocument,
   RagDocumentsResponse,
   RagTextResponse,
+  RoleModelSettings,
+  RoleModelSettingsList,
   SessionInfo,
   UpdateSettingsResponse,
 } from '@krutrim_agent/shared-types';
@@ -109,6 +113,17 @@ export const chatApiMessageSchema: z.ZodType<ChatApiMessage> = z
   .object({
     role: z.enum(['user', 'assistant']),
     content: z.string(),
+    interrupted: z.boolean().optional(),
+    tool_calls: z
+      .array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          args: z.string(),
+          result: z.string().nullable().optional(),
+        }),
+      )
+      .optional(),
   })
   .strict();
 
@@ -192,17 +207,48 @@ export const updateSettingsResponseSchema: z.ZodType<UpdateSettingsResponse> = z
   })
   .strict();
 
-/**
- * SSE status events (`GET /api/status/containers/{ownerId}`) are validated
- * leniently on purpose — not `.strict()`, and a mismatch is handled by the
- * caller (see `useSseStatus` in `../hooks/use-sse-status.ts`) by warning and
- * keeping the last-known-good value, not throwing. A live status stream
- * should degrade gracefully on one malformed frame; that's different from a
- * one-shot REST response, where a schema mismatch should fail loudly and
- * immediately. `status` mirrors `ContainerStatusEvent['status']`, which is
- * itself an open string union in `shared-types` for the same reason.
- */
-export const containerStatusEventSchema = z.object({
-  status: z.string(),
-  ref_count: z.number().optional(),
-});
+export const providerCardSchema: z.ZodType<ProviderCard> = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    api_key_env: z.string(),
+    available: z.boolean(),
+    configured: z.boolean(),
+  })
+  .strict();
+
+export const providerListResponseSchema: z.ZodType<{ providers: ProviderCard[] }> = z
+  .object({ providers: z.array(providerCardSchema) })
+  .strict();
+
+export const modelCardSchema: z.ZodType<ModelCard> = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    provider: z.string(),
+    vendor: z.string(),
+    kind: z.enum(['chat', 'embedding']),
+    context_window: z.number().nullable(),
+    max_output_tokens: z.number().nullable(),
+    supports_temperature: z.boolean(),
+    supports_vision: z.boolean(),
+    default: z.boolean(),
+  })
+  .strict();
+
+export const modelCatalogResponseSchema: z.ZodType<{ models: ModelCard[] }> = z
+  .object({ models: z.array(modelCardSchema) })
+  .strict();
+
+const roleModelSettingsSchema: z.ZodType<RoleModelSettings> = z
+  .object({
+    role: z.string(),
+    settings: modelSettingsSchema,
+    source: z.enum(['session', 'agent', 'profile']),
+  })
+  .strict();
+
+export const roleModelSettingsListSchema: z.ZodType<RoleModelSettingsList> = z
+  .object({ roles: z.array(roleModelSettingsSchema) })
+  .strict();
+

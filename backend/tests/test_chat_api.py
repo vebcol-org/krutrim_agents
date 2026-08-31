@@ -83,13 +83,13 @@ def send_chat(client: TestClient, *, message: str, **forwarded) -> dict:
 def test_list_models_returns_catalog(client):
     response = client.get("/api/models")
     assert response.status_code == 200
-    assert response.json() == [
-        {
-            "provider": "openrouter",
-            "model": settings.default_model,
-            "display_name": "DeepSeek V4 Flash (OpenRouter)",
-        }
-    ]
+    payload = response.json()
+    assert {"provider", "model", "display_name"} == set(payload[0])
+    # the global default chat model is always offered
+    assert any(
+        m["provider"] == "openrouter" and m["model"] == settings.default_model
+        for m in payload
+    )
 
 
 def test_first_message_creates_chat_and_session(client):
@@ -239,3 +239,53 @@ def test_session_messages_roundtrip(client):
 
 def test_session_messages_for_unknown_session_returns_404(client):
     assert client.get("/api/sessions/does-not-exist/messages").status_code == 404
+
+
+def test_to_display_messages_flags_interrupted_assistant_turn():
+    from krutrim_agent_backend.chat.messages import to_display_messages
+    from langchain_core.messages import HumanMessage
+
+    out = to_display_messages(
+        [
+            HumanMessage(content="research tesla"),
+            AIMessage(content="Let me start by checking the workspace…", additional_kwargs={"interrupted": True}),
+        ]
+    )
+    assert out == [
+        {"role": "user", "content": "research tesla"},
+        {"role": "assistant", "content": "Let me start by checking the workspace…", "interrupted": True},
+    ]
+
+
+def test_to_display_messages_keeps_tool_calls_with_results():
+    from krutrim_agent_backend.chat.messages import to_display_messages
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    out = to_display_messages(
+        [
+            HumanMessage(content="research tesla"),
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "c1", "name": "web_search", "args": {"query": "tesla"}, "type": "tool_call"}],
+            ),
+            ToolMessage(content="Tesla, Inc. is an automaker…", tool_call_id="c1", name="web_search"),
+            AIMessage(content="===FINAL_REPORT===\n# Tesla\n…"),
+        ],
+        include_tool_calls=True,
+    )
+    assert out == [
+        {"role": "user", "content": "research tesla"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "name": "web_search",
+                    "args": '{"query": "tesla"}',
+                    "result": "Tesla, Inc. is an automaker…",
+                }
+            ],
+        },
+        {"role": "assistant", "content": "===FINAL_REPORT===\n# Tesla\n…"},
+    ]

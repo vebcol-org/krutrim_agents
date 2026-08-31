@@ -24,6 +24,8 @@ interface TextAttachment {
 export interface ComposerProps {
   disabled: boolean;
   onSend: (text: string) => void;
+  /** Rendered in the bottom-left controls row (e.g. a session model picker). */
+  leftSlot?: React.ReactNode;
   /** When true (and `onStop` is set) the send button becomes a stop button that
    * stays enabled while `disabled` is true. */
   isRunning?: boolean;
@@ -46,6 +48,7 @@ export interface ComposerProps {
 export function Composer({
   disabled,
   onSend,
+  leftSlot,
   isRunning,
   onStop,
   backendUrl,
@@ -195,7 +198,13 @@ export function Composer({
                 <span className="text-xs text-muted-foreground">Starting session…</span>
               ) : attachError ? (
                 <span className="text-xs text-destructive">{attachError}</span>
-              ) : null}
+              ) : (
+                leftSlot && (
+                  <div onClick={(e) => e.stopPropagation()} className="flex items-center">
+                    {leftSlot}
+                  </div>
+                )
+              )}
             </div>
 
             {showStop ? (

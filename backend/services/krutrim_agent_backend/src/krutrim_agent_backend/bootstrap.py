@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 
 from krutrim_agent_management.storage_factory import create_storage
 from krutrim_agent_sandbox.registry import SandboxRegistry
-from krutrim_agents_core.providers.store import ProviderStore
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
 
 @dataclass
 class AppState:
-    provider_store: ProviderStore
     storage: Storage
     # Owner-scoped sandbox registry — resolves a session to its workspace dir
     # and hands back an in-process `FilesystemBackend` rooted there (see
@@ -40,17 +38,14 @@ class AppState:
 
 
 async def build_app_state(settings: AppSettings) -> AppState:
-    provider_store = ProviderStore(settings.provider_settings_path)
     storage = create_storage(settings)
     sandbox_registry = SandboxRegistry(store=storage)
     return AppState(
-        provider_store=provider_store,
         storage=storage,
         sandbox_registry=sandbox_registry,
     )
 
 
 def install_app_state(app: FastAPI, state: AppState) -> None:
-    app.state.provider_store = state.provider_store
     app.state.storage = state.storage
     app.state.sandbox_registry = state.sandbox_registry

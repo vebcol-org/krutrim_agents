@@ -3,7 +3,7 @@ from __future__ import annotations
 from deepagents.backends.filesystem import FilesystemBackend
 from krutrim_agents_core.builder import build_agent
 from krutrim_agents_core.harness.readonly_backend import ReadOnlyFilesystemBackend
-from krutrim_agents_core.providers.store import ProviderStore
+from krutrim_agents_core.providers.resolver import resolve_models
 from krutrim_agents_core.registry import all_profiles
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -21,41 +21,42 @@ def _fs_backend(tmp_path) -> FilesystemBackend:
 
 def test_every_registered_profile_compiles(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-    store = ProviderStore(tmp_path / "settings.json")
     for key, profile in all_profiles().items():
-        graph = build_agent(profile, store, _fs_backend(tmp_path))
+        graph = build_agent(profile, resolve_models(profile), _fs_backend(tmp_path))
         assert graph.name == key
 
 
 def test_build_agent_defaults_to_in_memory_checkpointer(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-    store = ProviderStore(tmp_path / "settings.json")
     _key, profile = next(iter(all_profiles().items()))
 
-    graph = build_agent(profile, store, _fs_backend(tmp_path))
+    graph = build_agent(profile, resolve_models(profile), _fs_backend(tmp_path))
 
     assert isinstance(graph.checkpointer, InMemorySaver)
 
 
 def test_build_agent_uses_injected_checkpointer(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-    store = ProviderStore(tmp_path / "settings.json")
     _key, profile = next(iter(all_profiles().items()))
     saver = InMemorySaver()
 
-    graph = build_agent(profile, store, _fs_backend(tmp_path), checkpointer=saver)
+    graph = build_agent(
+        profile, resolve_models(profile), _fs_backend(tmp_path), checkpointer=saver
+    )
 
     assert graph.checkpointer is saver
 
 
 def test_build_agent_includes_extra_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-    store = ProviderStore(tmp_path / "settings.json")
     _key, profile = next(iter(all_profiles().items()))
 
-    without = build_agent(profile, store, _fs_backend(tmp_path))
+    without = build_agent(profile, resolve_models(profile), _fs_backend(tmp_path))
     with_extra = build_agent(
-        profile, store, _fs_backend(tmp_path), extra_tools=[_dummy_extra_tool]
+        profile,
+        resolve_models(profile),
+        _fs_backend(tmp_path),
+        extra_tools=[_dummy_extra_tool],
     )
 
     assert "_dummy_extra_tool" not in without.nodes["tools"].bound.tools_by_name

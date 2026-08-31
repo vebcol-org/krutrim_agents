@@ -8,9 +8,11 @@ AG-UI event sequence plus the plugin hook ordering.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
+import pytest
 from ag_ui.core import CustomEvent, EventType
 from ag_ui.core.types import RunAgentInput
 from krutrim_agent_agui import PluginBase, run_graph_as_agui
@@ -88,6 +90,22 @@ async def test_emits_reasoning_before_text() -> None:
     assert [e.delta for e in events if e.type == EventType.REASONING_MESSAGE_CONTENT] == ["thinking..."]
 
 
+async def test_all_assistant_text_streams_as_text_message_content() -> None:
+    chunks = [
+        AIMessageChunk(content="# Report\n", id="m1"),
+        AIMessageChunk(content="Body of the answer.", id="m1"),
+        AIMessageChunk(content="", id="m1", response_metadata={"finish_reason": "stop"}),
+    ]
+    graph = FakeGraph(
+        script=[((), "messages", (c, {})) for c in chunks],
+        final_messages=[AIMessage(content="x", id="m1")],
+    )
+    events = await _collect(run_graph_as_agui(graph, _run_input(), thread_id="t1"))
+    text = "".join(e.delta for e in events if e.type == EventType.TEXT_MESSAGE_CONTENT)
+    assert text == "# Report\nBody of the answer."
+    assert not any(e.type == EventType.CUSTOM for e in events)
+
+
 async def test_subagent_tokens_are_not_streamed_as_text() -> None:
     sub = AIMessageChunk(content="secret subagent thought", id="s1")
     graph = FakeGraph(
@@ -155,6 +173,60 @@ async def test_plugin_hooks_inject_events_in_order() -> None:
     assert "saw_start" in custom
     assert custom[-1] == "after"
     assert events[-1].type == EventType.RUN_FINISHED
+
+
+async def test_cancelled_run_persists_partial_turn_to_checkpoint() -> None:
+    class CancelGraph(FakeGraph):
+        def __init__(self) -> None:
+            super().__init__(script=[], final_messages=[])
+            self.updated: list = []
+
+        async def astream(self, _input, _config, *, stream_mode, subgraphs):
+            yield ((), "messages", (AIMessageChunk(content="partial ans", id="m1"), {}))
+            raise asyncio.CancelledError
+
+        async def aupdate_state(self, _config, values):
+            self.updated.append(values)
+
+    graph = CancelGraph()
+    with pytest.raises(asyncio.CancelledError):
+        await _collect(run_graph_as_agui(graph, _run_input(), thread_id="t1"))
+
+    assert len(graph.updated) == 1
+    msg = graph.updated[0]["messages"][0]
+    assert msg.content == "partial ans"
+    assert msg.additional_kwargs.get("interrupted") is True
+
+
+async def test_continuation_hint_injected_after_an_interrupted_turn() -> None:
+    from langchain_core.messages import SystemMessage
+
+    class HintGraph(FakeGraph):
+        def __init__(self, prior: list) -> None:
+            super().__init__(script=[], final_messages=prior)
+            self.seen_input: dict | None = None
+
+        async def astream(self, graph_input, _config, *, stream_mode, subgraphs):
+            self.seen_input = graph_input
+            yield ((), "messages", (AIMessageChunk(content="ok", id="m2"), {}))
+            yield (
+                (),
+                "messages",
+                (AIMessageChunk(content="", id="m2", response_metadata={"finish_reason": "stop"}), {}),
+            )
+
+    # last stored turn is an interrupted assistant message -> hint expected
+    interrupted_prior = [AIMessage(content="half a", additional_kwargs={"interrupted": True})]
+    g1 = HintGraph(interrupted_prior)
+    await _collect(run_graph_as_agui(g1, _run_input(), thread_id="t1"))
+    kinds = [type(m).__name__ for m in g1.seen_input["messages"]]
+    assert kinds == ["SystemMessage", "HumanMessage"]
+    assert isinstance(g1.seen_input["messages"][0], SystemMessage)
+
+    # a normal completed prior turn -> no hint
+    g2 = HintGraph([AIMessage(content="a full answer", id="m1")])
+    await _collect(run_graph_as_agui(g2, _run_input(), thread_id="t1"))
+    assert [type(m).__name__ for m in g2.seen_input["messages"]] == ["HumanMessage"]
 
 
 async def test_graph_failure_becomes_run_error_not_raise() -> None:

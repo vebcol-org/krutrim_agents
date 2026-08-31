@@ -39,6 +39,7 @@ export interface UseAgentChatResult {
   runStats: RunStats | null;
   isRunning: boolean;
   error: string | null;
+  interrupted: boolean;
   sendMessage: (text: string) => void;
   stop: () => void;
 }
