@@ -3,6 +3,7 @@ import type { Message } from '@ag-ui/client';
 import { ScrollArea } from '@krutrim_agent/ui';
 
 import type { TraceStep } from '../../hooks/use-agent-stream';
+import { Markdown } from '../markdown';
 import { AgentActivity } from './agent-activity';
 import { AgentMessageBubble } from './agent-message-bubble';
 
@@ -59,9 +60,7 @@ export function AgentMessageList({
                   <AgentActivity trace={trace} isRunning={isRunning} />
                 )}
                 {narration && (
-                  <div className="w-full max-w-[85%] whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                    {narration}
-                  </div>
+                  <Markdown className="w-full max-w-[85%] text-muted-foreground">{narration}</Markdown>
                 )}
               </>
             )}

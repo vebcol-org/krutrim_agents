@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import type { TraceStep } from '../../hooks/use-agent-stream';
+import { Markdown } from '../markdown';
 
 /**
  * The Claude / ChatGPT-style "what the agent is doing" panel, rendered inline
@@ -174,9 +175,17 @@ function ActivityRow({ step }: { step: TraceStep }) {
       <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded px-1.5 py-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground">
         {head}
       </summary>
-      <pre className="mx-1.5 mb-1 mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted px-2 py-1.5 font-mono text-[0.68rem] leading-4 text-muted-foreground">
-        {step.detail}
-      </pre>
+      {step.kind === 'reasoning' ? (
+        // The model's thinking is prose — render it as markdown.
+        <div className="mx-1.5 mb-1 mt-0.5 max-h-72 overflow-auto rounded bg-muted px-2 py-1.5 text-[0.72rem] text-muted-foreground">
+          <Markdown className="text-[0.72rem] leading-[1.15rem]">{step.detail ?? ''}</Markdown>
+        </div>
+      ) : (
+        // Tool args / results — keep verbatim (usually JSON).
+        <pre className="mx-1.5 mb-1 mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted px-2 py-1.5 font-mono text-[0.68rem] leading-4 text-muted-foreground">
+          {step.detail}
+        </pre>
+      )}
     </details>
   );
 }
