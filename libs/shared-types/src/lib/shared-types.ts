@@ -106,8 +106,8 @@ export interface ModelSelection {
 }
 
 /**
- * The shapes the *default* canvas renderer understands. A custom
- * per-agent renderer (see `@krutrim_agent/agent-renderers`) can ignore
+ * The shapes the *default* canvas renderer understands. A screen's own
+ * `OutputRenderer` (`@krutrim_agent/agent-ui` — `screens/<key>/`) can ignore
  * `kind` entirely and interpret `content` however it wants — this is a
  * hint, not a contract every renderer must honor.
  */

@@ -61,16 +61,16 @@ backend/            uv workspace. `uv run` anything from here.
   tests/       pytest suite spanning every workspace package.
 
 libs/          Frontend (Nx) packages.
-  agent-ui/         Core frontend shell: history rail, chat/agent threads,
-                    composer, settings panels, AG-UI client wiring, and the
-                    work-log↔output routing. WHY: agent-agnostic — never edited
-                    to add an agent.
-  agent-renderers/  Per-agent frontend plugin surface: the output-panel renderer
-                    registry AND the turn splitter (what counts as work-log
-                    narration vs. finished output — e.g. research's
-                    `===FINAL_REPORT===` marker). WHY: everything agent-specific
-                    on the frontend lives here, so removing an agent is deleting
-                    a folder + one registry line.
+  agent-ui/         The whole `<Agent>` product frontend. `components/{shell,
+                    thread,panels,sheets}/` is the agent-agnostic frame (history
+                    rail, composer, message list, settings panels). `screens/` is
+                    the per-agent plugin surface: `screens/<key>/` exports an
+                    `AgentScreenModule` (`Center` pane + optional `OutputRenderer`
+                    + `turnSplitter`); `home`, `chat` and each agent type are all
+                    modules in `screens/registry.ts`. `api/ hooks/ store/` are the
+                    shared data layer. WHY: one package; adding an agent is a
+                    `screens/<key>/` folder + one registry line, nothing in the
+                    frame changes. (Absorbed the former `agent-renderers` package.)
   shared-types/     Hand-synced TS mirror of backend Pydantic response models.
                     WHY: no codegen; the API contract stays explicit and diffable.
   ui/               Generic shadcn/radix-style primitives. WHY: the design-system
@@ -83,7 +83,7 @@ docs/            Living documentation (app-flow.md, usage/use-case docs).
 .architecture/   Design-decision notes — see below (strict edit policy).
 ```
 
-Core vs. plugin split (see README.md and `.architecture/core-plugin-architecture.md` for the full writeup): the FastAPI app (`krutrim_agent_backend`), the providers system, the sandbox (`krutrim_agent_sandbox`), harness loaders, `krutrim_agents_core/registry.py`, `krutrim_agents_core/builder.py`, `libs/ui`, and `libs/agent-ui` are **core** — adding a new agent profile never requires editing them. New agent types are added purely under `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/` and (optionally) `libs/agent-renderers/src/<key>/` (its renderer *and* its turn splitter).
+Core vs. plugin split (see README.md and `.architecture/core-plugin-architecture.md` for the full writeup): the FastAPI app (`krutrim_agent_backend`), the providers system, the sandbox (`krutrim_agent_sandbox`), harness loaders, `krutrim_agents_core/registry.py`, `krutrim_agents_core/builder.py`, `libs/ui`, and the `agent-ui` frame (`components/{shell,thread,panels,sheets}/`, `api/`, `hooks/`, `store/`) are **core** — adding a new agent profile never requires editing them. New agent types are added purely under `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/` and (optionally) `libs/agent-ui/src/screens/<key>/` (an `AgentScreenModule` — its `Center` pane, `OutputRenderer`, and `turnSplitter`) plus one line in `libs/agent-ui/src/screens/registry.ts`.
 
 ## Reference `.architecture/` for design context
 

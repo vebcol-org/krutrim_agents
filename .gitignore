@@ -71,3 +71,4 @@ dev_cache.py
 .nx
 *.patch
 !./patch/*.patch
+.pnpm-store

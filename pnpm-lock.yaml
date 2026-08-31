@@ -208,47 +208,11 @@ importers:
         specifier: ^18.3.0
         version: 18.3.1(react@18.3.1)
 
-  libs/agent-renderers:
-    dependencies:
-      '@krutrim_agent/shared-types':
-        specifier: workspace:*
-        version: link:../shared-types
-      '@krutrim_agent/ui':
-        specifier: workspace:*
-        version: link:../ui
-      katex:
-        specifier: ^0.16.11
-        version: 0.16.47
-      react:
-        specifier: ^18.3.0
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.0
-        version: 18.3.1(react@18.3.1)
-      react-markdown:
-        specifier: ^9.0.1
-        version: 9.1.0(@types/react@18.3.31)(react@18.3.1)(supports-color@8.1.1)
-      rehype-katex:
-        specifier: ^7.0.1
-        version: 7.0.1
-      rehype-raw:
-        specifier: ^7.0.0
-        version: 7.0.0
-      remark-gfm:
-        specifier: ^4.0.0
-        version: 4.0.1(supports-color@8.1.1)
-      remark-math:
-        specifier: ^6.0.0
-        version: 6.0.0(supports-color@8.1.1)
-
   libs/agent-ui:
     dependencies:
       '@ag-ui/client':
         specifier: ^0.0.57
         version: 0.0.57
-      '@krutrim_agent/agent-renderers':
-        specifier: workspace:*
-        version: link:../agent-renderers
       '@krutrim_agent/extensions':
         specifier: workspace:*
         version: link:../extensions
@@ -261,6 +225,9 @@ importers:
       '@reduxjs/toolkit':
         specifier: ^2.12.0
         version: 2.12.0(react-redux@9.3.0(@types/react@18.3.31)(react@18.3.1)(redux@5.0.1))(react@18.3.1)
+      katex:
+        specifier: ^0.16.11
+        version: 0.16.47
       lucide-react:
         specifier: ^1.28.0
         version: 1.28.0(react@18.3.1)
@@ -270,12 +237,27 @@ importers:
       react-dom:
         specifier: ^18.3.0
         version: 18.3.1(react@18.3.1)
+      react-markdown:
+        specifier: ^9.0.1
+        version: 9.1.0(@types/react@18.3.31)(react@18.3.1)(supports-color@8.1.1)
       react-redux:
         specifier: ^9.3.0
         version: 9.3.0(@types/react@18.3.31)(react@18.3.1)(redux@5.0.1)
       react-router-dom:
         specifier: ^7.18.2
         version: 7.18.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      rehype-katex:
+        specifier: ^7.0.1
+        version: 7.0.1
+      rehype-raw:
+        specifier: ^7.0.0
+        version: 7.0.0
+      remark-gfm:
+        specifier: ^4.0.0
+        version: 4.0.1(supports-color@8.1.1)
+      remark-math:
+        specifier: ^6.0.0
+        version: 6.0.0(supports-color@8.1.1)
       zod:
         specifier: ^3.24.2
         version: 3.25.76

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { HttpAgent, randomUUID, type Message, type RunAgentParameters } from '@ag-ui/client';
-import type { TraceStep } from '@krutrim_agent/agent-renderers';
+
+import type { TraceStep } from '../screens/types';
 
 /**
  * The shared AG-UI streaming client. Both the Agent flow

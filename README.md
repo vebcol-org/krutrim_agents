@@ -2,35 +2,6 @@
 
 A pluggable multi-agent-type platform: a LangGraph + [deepagents](https://docs.langchain.com/oss/python/deepagents/overview) backend (Python) hosting independent agent "profiles" (this pass ships `research`; more can be added without touching core code), talking directly to a pure-React frontend (web app and Tauri desktop app) over the AG-UI protocol via `@ag-ui/client`'s `HttpAgent` — no intermediary runtime process. Chat lives in a left pane; the agent's finished output renders in a right-hand canvas, using whichever agent type is selected via `?agent=<key>` in the URL.
 
-## Architecture
-
-```
-apps/web (Vite+React+TS)     ─┐
-                                ├─ @ag-ui/client HttpAgent, one per selected agent_key
-apps/desktop (Tauri+Rust+TS) ─┘  (same React renderer as apps/web, wrapped in a
-                                  native window by src-tauri/ — no Node "main process")
-                                                       │
-                                                       │ AG-UI protocol (HTTP/SSE), direct
-                                                       ▼
-                                    backend/ (FastAPI, Python, uv-managed)
-                                      ├─ POST /agents/{agent_key}       → ONE parameterized route
-                                      ├─ GET  /api/agents               → lists registered profiles
-                                      ├─ /api/providers/{agent_key}     → CRUD for per-role LLM settings
-                                      └─ /api/health
-                                                       │
-                                       krutrim_agents_core/ (libs/krutrim_agents_core)
-                                    registry.py auto-discovers krutrim_agents/profiles/{research,...}/*
-                                                       │
-                                             ┌─────────┴──────────┐
-                                             ▼                    ▼
-                                  providers/ (OpenRouter)   harness/ (skills, prompts,
-                                                            evals, memory - per agent_key)
-                                                                   │ execute / file ops
-                                                                   ▼
-                                                One Docker sandbox per agent profile (read-only
-                                                rootfs, no network, non-root, resource limits)
-```
-
 ## The core/plugin split
 
 This is the central design decision — see `.architecture/` (design-decision notes, tracked in the repo) for the full writeup. Short version:
@@ -38,7 +9,7 @@ This is the central design decision — see `.architecture/` (design-decision no
 - **Core** (never touched when adding an agent): the FastAPI app, the providers system, the Docker sandbox, the harness loaders, `krutrim_agents_core/registry.py` (auto-discovery), `krutrim_agents_core/builder.py` (generic graph assembly), the shared primitives in `libs/ui`, and the entire frontend shell in `libs/agent-ui` (chat panel, settings panel, URL parsing, canvas shell, the `@ag-ui/client` wiring in `agent-client.ts`).
 - **Plugin surface** (what you touch to add a new agent type):
   - Backend: one new folder `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/__init__.py` (declares an `AgentProfile` — prompts, tools, subagents, default models — and self-registers) plus its harness content folders. **Zero edits to existing files** — `registry.py` scans each configured profile-source package's filesystem path at import time.
-  - Frontend: one new folder `libs/agent-renderers/src/<key>/renderer.tsx` (a React component that draws that agent's content) plus **one line** in `libs/agent-renderers/src/registry.ts`. Everything in `libs/agent-ui` stays untouched — it only ever calls `getAgentRenderer(agentKey)`, falling back to a built-in markdown/chart/news renderer if a custom one isn't registered.
+  - Frontend: one new folder `libs/agent-ui/src/screens/<key>/` exporting an `AgentScreenModule` (a `Center` pane, plus an optional `OutputRenderer` and `turnSplitter`) plus **one line** in `libs/agent-ui/src/screens/registry.ts`. The rest of `libs/agent-ui` — the `components/{shell,thread,panels,sheets}/` frame — stays untouched; it only ever calls `getScreen(key)`, falling back to the `default` screen (shared agent thread + built-in markdown/chart/news renderer) when a key isn't registered.
 
 ## Reusable packages — consuming this repo from another codebase
 
@@ -51,7 +22,7 @@ Every backend lib and every reusable frontend lib (never a page/app) is an indep
 krutrim-agents-core = { git = "https://github.com/<org>/krutrim_community", subdirectory = "backend/libs/krutrim_agents_core" }
 ```
 
-**Frontend** (`libs/*`, each a real npm package under the `@krutrim_agent/` scope): `@krutrim_agent/ui`, `@krutrim_agent/shared-types`, `@krutrim_agent/agent-renderers`, `@krutrim_agent/agent-ui`, `@krutrim_agent/extensions` (`tauri-utils` stays unpackaged — desktop/Tauri-only). Each has its own `package.json`/`vite.config.mts` producing a real `dist/` (ESM + `.d.ts`); `pnpm nx build <lib>` builds one, `pnpm run build` builds everything. A consuming repo's `package.json` points at a subfolder via pnpm's git-subdirectory support:
+**Frontend** (`libs/*`, each a real npm package under the `@krutrim_agent/` scope): `@krutrim_agent/ui`, `@krutrim_agent/shared-types`, `@krutrim_agent/agent-ui` (the whole `<Agent>` frontend, including the per-agent `screens/`), `@krutrim_agent/extensions` (`tauri-utils` stays unpackaged — desktop/Tauri-only). Each has its own `package.json`/`vite.config.mts` producing a real `dist/` (ESM + `.d.ts`); `pnpm nx build <lib>` builds one, `pnpm run build` builds everything. A consuming repo's `package.json` points at a subfolder via pnpm's git-subdirectory support:
 
 ```json
 "dependencies": {
@@ -59,7 +30,7 @@ krutrim-agents-core = { git = "https://github.com/<org>/krutrim_community", subd
 }
 ```
 
-Because `agent-ui`/`agent-renderers` depend on their sibling `@krutrim_agent/*` packages too, add a `pnpm.overrides` block redirecting those to the same git subfolder (there's no registry resolving `@krutrim_agent/*` by version yet):
+Because `agent-ui` depends on its sibling `@krutrim_agent/*` packages too, add a `pnpm.overrides` block redirecting those to the same git subfolder (there's no registry resolving `@krutrim_agent/*` by version yet):
 
 ```json
 "pnpm": {
@@ -165,7 +136,7 @@ Every filesystem operation and shell command an agent runs happens inside a lock
 
 1. `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/__init__.py` — define an `AgentProfile` and call `register_profile(...)`. Copy `research` (or the minimal `experiment`) as a starting point.
 2. `backend/harness/{skills,prompts,memory}/<key>/` — that profile's harness content (at minimum, `memory/<key>/AGENTS.md` and a prompt per declared role).
-3. `libs/agent-renderers/src/<key>/renderer.tsx` + one line in `libs/agent-renderers/src/registry.ts` — optional; omit it and the built-in markdown/chart/news renderer is used automatically.
+3. `libs/agent-ui/src/screens/<key>/` (an `AgentScreenModule`) + one line in `libs/agent-ui/src/screens/registry.ts` — optional; omit it and the `default` screen (shared agent thread + built-in markdown/chart/news renderer) is used automatically.
 4. Restart the backend and the runtime. Visit `?agent=<key>`.
 
 Nothing else changes — no core file is edited for any of the above.
