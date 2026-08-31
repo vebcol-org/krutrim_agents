@@ -12,8 +12,8 @@ import { HistoryRail } from './history-rail';
 import { OutputPanel } from './output-panel';
 import { ResizeHandle } from './resize-handle';
 
-const OUTPUT_MIN_WIDTH = 320;
-const OUTPUT_MAX_WIDTH = 720;
+const OUTPUT_MIN_WIDTH = 520;
+const OUTPUT_MAX_WIDTH = 920;
 const OUTPUT_DEFAULT_WIDTH = 420;
 
 /**
