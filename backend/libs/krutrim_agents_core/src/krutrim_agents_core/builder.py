@@ -9,9 +9,10 @@ Wiring, in one place:
 - `backend`: a `CompositeBackend` routing `/skills/common/`, `/skills/<key>/`,
   and `/memory/` to read-only host directories (this profile's harness
   content, scoped so it can't see other profiles' memory) and everything
-  else (in particular `/workspace` and `execute`) to the Docker sandbox — so
-  every filesystem op and shell command the agent runs happens inside the
-  container, never on the host.
+  else (in particular `/workspace`) to the caller-supplied filesystem
+  backend — an in-process `FilesystemBackend` scoped to the session's
+  workspace dir (see `krutrim_agent_sandbox.registry`). No shell `execute`
+  today; a non-`SandboxBackendProtocol` backend simply doesn't get that tool.
 - the skills/memory routes use `ReadOnlyFilesystemBackend`, which refuses
   `write`/`edit`/`delete` outright, so the agent can read harness content but
   never mutate it. (deepagents' `permissions` rules can't be combined with a
@@ -57,7 +58,6 @@ from krutrim_agents_core.providers.registry import build_chat_model
 
 if TYPE_CHECKING:
     from deepagents.backends.protocol import BackendProtocol
-    from deepagents.backends.sandbox import BaseSandbox
     from deepagents.middleware.subagents import SubAgent
     from langchain.agents.middleware.types import AgentMiddleware
     from langchain_core.language_models import BaseChatModel
@@ -146,7 +146,7 @@ class DeepAgentContext:
 def build_agent(
     profile: AgentProfile,
     store: ProviderStore,
-    sandbox: BaseSandbox,
+    sandbox: BackendProtocol,
     checkpointer: BaseCheckpointSaver | None = None,
     extra_tools: list[BaseTool] | None = None,
     extra_middleware: list[AgentMiddleware[Any, Any, Any]] | None = None,

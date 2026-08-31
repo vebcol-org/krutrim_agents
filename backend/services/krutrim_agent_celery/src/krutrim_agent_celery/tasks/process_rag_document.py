@@ -155,8 +155,8 @@ def process_rag_document(
     """`bind=True`/`max_retries=None`: on a lock miss, this retries itself
     indefinitely (with a short countdown) rather than blocking — that
     releases the worker slot immediately instead of tying it up waiting, so
-    other task types (`reap_idle_containers`, `precompute_embeddings`) on the
-    same worker aren't starved by a deep RAG-ingestion queue."""
+    other task types (`precompute_embeddings`) on the same worker aren't
+    starved by a deep RAG-ingestion queue."""
     redis_client = redis.Redis.from_url(settings.redis_url)
     lock = redis_client.lock(
         _RAG_INGESTION_LOCK_KEY, timeout=_RAG_INGESTION_LOCK_TIMEOUT_SECONDS

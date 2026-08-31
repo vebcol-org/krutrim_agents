@@ -5,7 +5,6 @@ members = ["libs/*", "services/*"]
 krutrim-agent-utils = { workspace = true }
 krutrim-agent-management = { workspace = true }
 krutrim-agent-agui = { workspace = true }
-krutrim-agent-grpc = { workspace = true }
 krutrim-agent-sandbox = { workspace = true }
 krutrim-agent-rag = { workspace = true }
 krutrim-agent-doc = { workspace = true }
@@ -57,7 +56,6 @@ dev = [
     "krutrim-agent-utils",
     "krutrim-agent-management",
     "krutrim-agent-agui",
-    "krutrim-agent-grpc",
     "krutrim-agent-sandbox",
     "krutrim-agent-rag",
     "krutrim-agent-doc",

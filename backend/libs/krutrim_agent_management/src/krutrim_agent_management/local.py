@@ -2,7 +2,7 @@
 
 Layout under `STORAGE_ROOT` (see `paths.default_storage_root`):
 
-    project.db / agents.db / chats.db / sessions.db / containers.db  -- one global table each
+    project.db / agents.db / chats.db / sessions.db  -- one global table each
     projects/{project_id}/MEMORY.md, cache/{namespace}/{sha256(key)}.json
     sessions/{session_id}/checkpointer.json, usage.json, workspace/, embeddings/
 
@@ -32,7 +32,6 @@ from krutrim_agent_management.hooks import run_session_delete_hooks
 from krutrim_agent_management.models import (
     Agent,
     Chat,
-    ContainerRecord,
     OwnerType,
     Project,
     SessionInfo,
@@ -86,13 +85,6 @@ def _row_to_session(row: sqlite3.Row) -> SessionInfo:
     return SessionInfo(**data)
 
 
-def _row_to_container(row: sqlite3.Row) -> ContainerRecord:
-    data = dict(row)
-    snapshot = data.get("policy_snapshot")
-    data["policy_snapshot"] = json.loads(snapshot) if snapshot else None
-    return ContainerRecord(**data)
-
-
 class _LocalStorageImpl:
     """Synchronous implementation; `LocalStorage` below dispatches each call to a worker
     thread via `asyncio.to_thread` to satisfy the async `Storage` contract."""
@@ -111,12 +103,10 @@ class _LocalStorageImpl:
         self._agents_db_lock = threading.Lock()
         self._chats_db_lock = threading.Lock()
         self._sessions_db_lock = threading.Lock()
-        self._containers_db_lock = threading.Lock()
         self._init_project_db()
         self._init_agents_db()
         self._init_chats_db()
         self._init_sessions_db()
-        self._init_containers_db()
 
     # -- paths ----------------------------------------------------------
 
@@ -135,10 +125,6 @@ class _LocalStorageImpl:
     @property
     def _sessions_db_path(self) -> Path:
         return self._root / "sessions.db"
-
-    @property
-    def _containers_db_path(self) -> Path:
-        return self._root / "containers.db"
 
     def project_dir(self, project_id: str) -> Path:
         return self._root / "projects" / project_id
@@ -253,25 +239,6 @@ class _LocalStorageImpl:
                     sandbox_sharing TEXT NOT NULL DEFAULT 'isolated',
                     attached_to_session_id TEXT,
                     linked_session_ids TEXT NOT NULL DEFAULT '[]'
-                )
-                """
-            )
-
-    def _init_containers_db(self) -> None:
-        with self._containers_db_lock, self._connect(self._containers_db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS containers (
-                    owner_id TEXT PRIMARY KEY,
-                    owner_kind TEXT NOT NULL,
-                    project_id TEXT,
-                    container_name TEXT NOT NULL,
-                    docker_container_id TEXT,
-                    status TEXT NOT NULL,
-                    ref_count INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    last_active_at TEXT NOT NULL,
-                    policy_snapshot TEXT
                 )
                 """
             )
@@ -847,68 +814,7 @@ class _LocalStorageImpl:
         )
         self._blobs.write(self._cache_key(project_id, namespace, key), encoded)
 
-    # -- sandbox containers -------------------------------------------------
-
-    def get_container(self, owner_id: str) -> ContainerRecord | None:
-        with self._containers_db_lock, self._connect(self._containers_db_path) as conn:
-            row = conn.execute(
-                "SELECT * FROM containers WHERE owner_id = ?", (owner_id,)
-            ).fetchone()
-        return _row_to_container(row) if row is not None else None
-
-    def upsert_container(self, record: ContainerRecord) -> None:
-        with self._containers_db_lock, self._connect(self._containers_db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO containers
-                    (owner_id, owner_kind, project_id, container_name, docker_container_id,
-                     status, ref_count, created_at, last_active_at, policy_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(owner_id) DO UPDATE SET
-                    owner_kind = excluded.owner_kind,
-                    project_id = excluded.project_id,
-                    container_name = excluded.container_name,
-                    docker_container_id = excluded.docker_container_id,
-                    status = excluded.status,
-                    ref_count = excluded.ref_count,
-                    created_at = excluded.created_at,
-                    last_active_at = excluded.last_active_at,
-                    policy_snapshot = excluded.policy_snapshot
-                """,
-                (
-                    record.owner_id,
-                    record.owner_kind,
-                    record.project_id,
-                    record.container_name,
-                    record.docker_container_id,
-                    record.status,
-                    record.ref_count,
-                    record.created_at,
-                    record.last_active_at,
-                    json.dumps(record.policy_snapshot)
-                    if record.policy_snapshot is not None
-                    else None,
-                ),
-            )
-
-    def list_containers(self, *, status: str | None = None) -> list[ContainerRecord]:
-        with self._containers_db_lock, self._connect(self._containers_db_path) as conn:
-            if status is None:
-                rows = conn.execute(
-                    "SELECT * FROM containers ORDER BY created_at"
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM containers WHERE status = ? ORDER BY created_at",
-                    (status,),
-                ).fetchall()
-        return [_row_to_container(row) for row in rows]
-
-    def delete_container(self, owner_id: str) -> None:
-        with self._containers_db_lock, self._connect(self._containers_db_path) as conn:
-            conn.execute("DELETE FROM containers WHERE owner_id = ?", (owner_id,))
-
-    # -- session workspace mirror --------------------------------------------
+    # -- session workspace --------------------------------------------------
 
     def read_workspace_files(self, session_id: str) -> list[str]:
         self.get_session(session_id)  # raises KeyError if unknown
@@ -1314,23 +1220,7 @@ class LocalStorage(Storage):
             self._impl.cache_set, project_id, namespace, key, value
         )
 
-    # -- sandbox containers -------------------------------------------------
-
-    async def get_container(self, owner_id: str) -> ContainerRecord | None:
-        return await asyncio.to_thread(self._impl.get_container, owner_id)
-
-    async def upsert_container(self, record: ContainerRecord) -> None:
-        return await asyncio.to_thread(self._impl.upsert_container, record)
-
-    async def list_containers(
-        self, *, status: str | None = None
-    ) -> list[ContainerRecord]:
-        return await asyncio.to_thread(self._impl.list_containers, status=status)
-
-    async def delete_container(self, owner_id: str) -> None:
-        return await asyncio.to_thread(self._impl.delete_container, owner_id)
-
-    # -- session workspace mirror --------------------------------------------
+    # -- session workspace ------------------------------------------------
 
     async def read_workspace_files(self, session_id: str) -> list[str]:
         return await asyncio.to_thread(self._impl.read_workspace_files, session_id)

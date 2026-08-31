@@ -19,7 +19,7 @@ libs/
   shared-types/     Hand-synced TS mirror of backend Pydantic models
   ui/               Generic UI primitives (shadcn/radix style)
   tauri-utils/      Tauri-runtime detection helper
-docker/             sandbox.Dockerfile (agent execution image) + docker-compose.yml (optional local Ollama)
+docker/             sandbox.Dockerfile (agent execution image) + docker-compose.yml
 docs/               Living documentation (app-flow.md, usage/use-case docs)
 .architecture/      Design-decision notes — see below
 ```

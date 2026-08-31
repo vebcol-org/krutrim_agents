@@ -46,6 +46,9 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from krutrim_agents_core.builder import build_agent
+from krutrim_agents_core.harness.recording_backend import RecordingFilesystemBackend
+from krutrim_agents_core.harness.run_logging import RunLoggingMiddleware
+from krutrim_agents_core.harness.runs import RunLogger
 from krutrim_agents_core.registry import get_profile
 
 if TYPE_CHECKING:
@@ -185,12 +188,14 @@ async def invoke_agent_turn(
                         call_chain=next_call_chain,
                     )
                 )
+            run_logger = RunLogger(target_agent.agent_key, target_session_id)
             graph = build_agent(
                 target_profile,
                 provider_store,
-                handle.backend,
+                RecordingFilesystemBackend(handle.backend, run_logger),
                 checkpointer=checkpointer,
                 extra_tools=extra_tools,
+                extra_middleware=[RunLoggingMiddleware(run_logger)],
             )
             incoming = HumanMessage(
                 content=message, name=f"peer_agent:{caller_session_id}"

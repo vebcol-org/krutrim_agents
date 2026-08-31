@@ -8,7 +8,7 @@ belongs to exactly one `Agent` or `Chat` (`owner_type`/`owner_id`), never direct
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -83,28 +83,3 @@ class SessionInfo(BaseModel):
     linked_session_ids: list[str] = []
     """Peers reachable via `message_agent` when `sandbox_sharing == "session-shared"`;
     eligibility is symmetric."""
-
-
-class ContainerRecord(BaseModel):
-    """One row per live-or-recently-live sandbox container, keyed by `owner_id`: a
-    session_id (the common case), project_id (reserved, unused today), or channel_id
-    (future bot integrations, never torn down by the idle reaper)."""
-
-    owner_id: str
-    owner_kind: Literal["session", "project", "channel"] = "session"
-    project_id: str | None = None
-    """The project this container's workspace belongs to, if any; resolves
-    `sandbox_idle_timeout_seconds` overrides."""
-    container_name: str
-    docker_container_id: str | None = None
-    status: Literal["starting", "running", "idle", "tearing_down", "stopped"] = (
-        "starting"
-    )
-    ref_count: int = 0
-    """Sessions currently attached. The idle reaper never tears down while this is > 0."""
-    created_at: str
-    last_active_at: str
-    """Bumped on every successful execute/upload/download call — what the reaper reads."""
-    policy_snapshot: dict[str, Any] | None = None
-    """The resolved `SandboxPolicy` this container was started with
-    (`SandboxPolicy.model_dump()`, so nested `binds`/list/None fields too)."""

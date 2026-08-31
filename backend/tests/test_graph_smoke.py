@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from krutrim_agent_sandbox.docker_backend import DockerSandboxBackend
+from deepagents.backends.filesystem import FilesystemBackend
 from krutrim_agents_core.builder import build_agent
 from krutrim_agents_core.harness.readonly_backend import ReadOnlyFilesystemBackend
 from krutrim_agents_core.providers.store import ProviderStore
@@ -15,24 +15,24 @@ def _dummy_extra_tool(x: str) -> str:
     return x
 
 
+def _fs_backend(tmp_path) -> FilesystemBackend:
+    return FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+
+
 def test_every_registered_profile_compiles(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     store = ProviderStore(tmp_path / "settings.json")
     for key, profile in all_profiles().items():
-        sandbox = DockerSandboxBackend(
-            owner_id=key
-        )  # not started - construction alone must not touch Docker
-        graph = build_agent(profile, store, sandbox)
+        graph = build_agent(profile, store, _fs_backend(tmp_path))
         assert graph.name == key
 
 
 def test_build_agent_defaults_to_in_memory_checkpointer(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     store = ProviderStore(tmp_path / "settings.json")
-    key, profile = next(iter(all_profiles().items()))
-    sandbox = DockerSandboxBackend(owner_id=key)
+    _key, profile = next(iter(all_profiles().items()))
 
-    graph = build_agent(profile, store, sandbox)
+    graph = build_agent(profile, store, _fs_backend(tmp_path))
 
     assert isinstance(graph.checkpointer, InMemorySaver)
 
@@ -40,11 +40,10 @@ def test_build_agent_defaults_to_in_memory_checkpointer(tmp_path, monkeypatch):
 def test_build_agent_uses_injected_checkpointer(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     store = ProviderStore(tmp_path / "settings.json")
-    key, profile = next(iter(all_profiles().items()))
-    sandbox = DockerSandboxBackend(owner_id=key)
+    _key, profile = next(iter(all_profiles().items()))
     saver = InMemorySaver()
 
-    graph = build_agent(profile, store, sandbox, checkpointer=saver)
+    graph = build_agent(profile, store, _fs_backend(tmp_path), checkpointer=saver)
 
     assert graph.checkpointer is saver
 
@@ -52,11 +51,12 @@ def test_build_agent_uses_injected_checkpointer(tmp_path, monkeypatch):
 def test_build_agent_includes_extra_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     store = ProviderStore(tmp_path / "settings.json")
-    key, profile = next(iter(all_profiles().items()))
-    sandbox = DockerSandboxBackend(owner_id=key)
+    _key, profile = next(iter(all_profiles().items()))
 
-    without = build_agent(profile, store, sandbox)
-    with_extra = build_agent(profile, store, sandbox, extra_tools=[_dummy_extra_tool])
+    without = build_agent(profile, store, _fs_backend(tmp_path))
+    with_extra = build_agent(
+        profile, store, _fs_backend(tmp_path), extra_tools=[_dummy_extra_tool]
+    )
 
     assert "_dummy_extra_tool" not in without.nodes["tools"].bound.tools_by_name
     assert "_dummy_extra_tool" in with_extra.nodes["tools"].bound.tools_by_name

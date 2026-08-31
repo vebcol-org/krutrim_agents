@@ -175,19 +175,9 @@ const openRouterModelSettingsSchema = z
   })
   .strict();
 
-const ollamaModelSettingsSchema = z
-  .object({
-    ...baseModelSettingsShape,
-    provider: z.literal('ollama'),
-    base_url: z.string(),
-    num_ctx: z.number().nullable(),
-    keep_alive: z.string().nullable(),
-  })
-  .strict();
 
 export const modelSettingsSchema: z.ZodType<ModelSettings> = z.discriminatedUnion('provider', [
   openRouterModelSettingsSchema,
-  ollamaModelSettingsSchema,
 ]);
 
 export const providerSettingsByRoleSchema: z.ZodType<ProviderSettingsByRole> = z.record(

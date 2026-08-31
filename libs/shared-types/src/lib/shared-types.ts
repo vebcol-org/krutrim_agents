@@ -21,7 +21,7 @@ export interface AgentMeta {
   roles: string[];
 }
 
-export const PROVIDER_KEYS = ['openrouter', 'ollama'] as const;
+export const PROVIDER_KEYS = ['openrouter'] as const;
 export type ProviderKey = (typeof PROVIDER_KEYS)[number];
 
 export interface BaseModelSettings {
@@ -41,14 +41,7 @@ export interface OpenRouterModelSettings extends BaseModelSettings {
   app_name: string;
 }
 
-export interface OllamaModelSettings extends BaseModelSettings {
-  provider: 'ollama';
-  base_url: string;
-  num_ctx: number | null;
-  keep_alive: string | null;
-}
-
-export type ModelSettings = OpenRouterModelSettings | OllamaModelSettings;
+export type ModelSettings = OpenRouterModelSettings ;
 
 /** A given agent's roles are dynamic (declared by its profile), not a fixed set. */
 export type ProviderSettingsByRole = Record<string, ModelSettings>;

@@ -1,14 +1,10 @@
 # Full stack on your laptop's Docker engine: frontend + backend + celery
-# worker + redis (+ optional ollama), one `docker compose up` instead of
+# worker + redis, one `docker compose up` instead of
 # starting each piece by hand. See docker/README.md for what each file is
 # and the faisslite/SSH-forwarding setup this build needs.
 #
-# `backend` and `celery-worker` get /var/run/docker.sock bind-mounted, so
-# when their code asks the Docker SDK to create a krutrim-agent-sandbox-* container
-# it's asking THIS SAME laptop engine to start a sibling container — not
-# nested Docker-in-Docker. `docker ps` on the host shows those sandbox
-# containers right alongside backend/celery-worker/frontend/redis.
-#
+# The agent graph runs in-process inside the `backend` container against a
+# plain filesystem sandbox (no Docker-in-Docker, no per-session containers).
 #
 # This is the PRODUCTION stack: images built from each Dockerfile's `prod`
 # target (minimal, non-root, no build tools), immutable — no source is
@@ -83,10 +79,8 @@ services:
         required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
-      # Identity path: same value the host bind-mount targets (see volumes
-      # below). backend drives the *host* Docker daemon over the mounted
-      # socket, so sandbox bind-mount sources — derived from STORAGE_ROOT —
-      # must be paths the host daemon can resolve, not a container-only /data.
+      # Same value the host bind-mount targets (see volumes below), so the
+      # celery-worker sees the identical STORAGE_ROOT for RAG ingestion.
       KRUTRIM_AGENT_STORAGE_ROOT: ${HOME}/.krutrim_agent
       # Vector store: faisslite (default) or qdrant — a pure RUNTIME switch (no
       # rebuild; both clients ship in the image). In .env.prod set
@@ -100,13 +94,12 @@ services:
     ports:
       - '8000:8000'
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Sessions/projects/sandbox-container registry (see
+      # Sessions/projects + per-session workspaces (see
       # krutrim_agent_management/local.py's STORAGE_ROOT layout) — bind-mounted to
       # your real home dir so it survives `docker compose down`/rebuilds,
       # not just container restarts.
       - ${HOME}/.krutrim_agent:${HOME}/.krutrim_agent
-      # Provider settings + per-agent run transcripts (gitignored, written
+      # Provider settings + per-run eval transcripts (gitignored, written
       # at runtime) — same reasoning.
       - ../backend/harness/memory:/app/harness/memory
     depends_on:
@@ -119,11 +112,6 @@ services:
       qdrant:
         condition: service_started
         required: false
-    # The prod image defaults to a non-root user, but this service drives the
-    # host Docker daemon through the socket mounted just above — which is
-    # root-owned — so it needs root. Kept here, next to that mount, rather
-    # than in the image. no-new-privileges still blocks setuid escalation.
-    user: "0:0"
     init: true
     security_opt:
       - no-new-privileges:true
@@ -154,16 +142,13 @@ services:
         required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
-      # Identity path — same reasoning as `backend` above (the reaper also
-      # drives the host Docker daemon to tear sandbox containers down).
+      # Same STORAGE_ROOT as `backend` — the RAG ingestion tasks read the same
+      # session workspaces the backend writes.
       KRUTRIM_AGENT_STORAGE_ROOT: ${HOME}/.krutrim_agent
       LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
       OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Same STORAGE_ROOT as `backend` — the reaper scans/updates
-      # containers.db, so both processes must point at the same data.
       - ${HOME}/.krutrim_agent:${HOME}/.krutrim_agent
       - ../backend/harness/memory:/app/harness/memory
     depends_on:
@@ -172,8 +157,6 @@ services:
       qdrant:
         condition: service_started
         required: false
-    # Same reason as `backend` — the mounted docker.sock is root-owned.
-    user: "0:0"
     init: true
     security_opt:
       - no-new-privileges:true

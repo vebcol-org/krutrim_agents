@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any
 
 from krutrim_agents_core.observability import get_langfuse_handler
@@ -40,16 +39,6 @@ def parse_model_settings(data: dict[str, Any]) -> ModelSettings:
 
 def build_chat_model(data: dict[str, Any] | ModelSettings) -> BaseChatModel:
     settings = data if isinstance(data, ModelSettings) else parse_model_settings(data)
-
-    if os.getenv("KRUTRIM_AGENT_RUNTIME_IN_SANDBOX"):
-        # The whole graph is running inside the network-disabled sandbox: every
-        # completion goes back to the host over `HostBridge.ChatComplete`, which
-        # rebuilds the real provider model (adding the API key) and logs the
-        # call. Lazy import — `krutrim_agent_grpc` ships only in the sandbox
-        # image and depends back on this package.
-        from krutrim_agent_grpc.proxy_model import build_proxy_chat_model
-
-        return build_proxy_chat_model(settings)
 
     model = _PROVIDERS[settings.provider].build_chat_model(settings)
     handler = get_langfuse_handler()

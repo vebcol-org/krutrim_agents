@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from krutrim_agent_management import ContainerRecord, LocalStorage
-from krutrim_agent_management.local import _now_iso
+from krutrim_agent_management import LocalStorage
 from krutrim_agent_management.paths import default_storage_root
 
 
@@ -435,83 +434,7 @@ async def test_update_session_sandbox_policy_unknown_raises(tmp_path):
         await storage.update_session_sandbox_policy("nope", sharing="isolated")
 
 
-# -- sandbox containers ------------------------------------------------------
-
-
-def _make_container_record(owner_id: str, **overrides) -> ContainerRecord:
-    now = _now_iso()
-    defaults = dict(
-        owner_id=owner_id,
-        owner_kind="session",
-        project_id="proj-1",
-        container_name=f"krutrim_agent-sandbox-{owner_id}",
-        status="running",
-        ref_count=1,
-        created_at=now,
-        last_active_at=now,
-    )
-    defaults.update(overrides)
-    return ContainerRecord(**defaults)
-
-
-async def test_get_container_returns_none_for_unknown_owner(tmp_path):
-    storage = LocalStorage(tmp_path)
-    assert await storage.get_container("nope") is None
-
-
-async def test_upsert_and_get_container_roundtrip(tmp_path):
-    storage = LocalStorage(tmp_path)
-    record = _make_container_record("session-1", policy_snapshot={"memory_mb": 512})
-    await storage.upsert_container(record)
-    fetched = await storage.get_container("session-1")
-    assert fetched == record
-
-
-async def test_upsert_container_overwrites_existing_row(tmp_path):
-    storage = LocalStorage(tmp_path)
-    await storage.upsert_container(
-        _make_container_record("session-1", status="starting")
-    )
-    await storage.upsert_container(
-        _make_container_record("session-1", status="running", ref_count=2)
-    )
-    fetched = await storage.get_container("session-1")
-    assert fetched.status == "running"
-    assert fetched.ref_count == 2
-
-
-async def test_list_containers_filters_by_status(tmp_path):
-    storage = LocalStorage(tmp_path)
-    await storage.upsert_container(
-        _make_container_record("session-1", status="running")
-    )
-    await storage.upsert_container(_make_container_record("session-2", status="idle"))
-    running = await storage.list_containers(status="running")
-    assert [c.owner_id for c in running] == ["session-1"]
-    everything = await storage.list_containers()
-    assert {c.owner_id for c in everything} == {"session-1", "session-2"}
-
-
-async def test_channel_owner_kind_roundtrips(tmp_path):
-    storage = LocalStorage(tmp_path)
-    record = _make_container_record(
-        "general-channel", owner_kind="channel", project_id=None
-    )
-    await storage.upsert_container(record)
-    fetched = await storage.get_container("general-channel")
-    assert fetched.owner_kind == "channel"
-    assert fetched.project_id is None
-
-
-async def test_delete_container_removes_row_and_is_idempotent(tmp_path):
-    storage = LocalStorage(tmp_path)
-    await storage.upsert_container(_make_container_record("session-1"))
-    await storage.delete_container("session-1")
-    assert await storage.get_container("session-1") is None
-    await storage.delete_container("session-1")  # no-op, not an error
-
-
-# -- session workspace mirror -------------------------------------------------
+# -- session workspace -------------------------------------------------------
 
 
 async def test_workspace_files_empty_for_fresh_session(tmp_path):
@@ -544,7 +467,7 @@ async def test_workspace_methods_for_unknown_session_raise(tmp_path):
         await storage.read_workspace_files("nope")
 
 
-async def test_reopening_storage_preserves_sandbox_policy_and_containers(tmp_path):
+async def test_reopening_storage_preserves_sandbox_policy(tmp_path):
     storage = LocalStorage(tmp_path)
     project = await storage.create_project("Persisted Policy")
     await storage.update_project_sandbox_policy(
@@ -555,11 +478,9 @@ async def test_reopening_storage_preserves_sandbox_policy_and_containers(tmp_pat
     await storage.update_session_sandbox_policy(
         session.session_id, linked_session_ids=["peer-1"]
     )
-    await storage.upsert_container(_make_container_record(session.session_id))
 
     reopened = LocalStorage(tmp_path)
     reopened_project = await reopened.get_project(project.project_id)
     reopened_session = await reopened.get_session(session.session_id)
     assert reopened_project.sandbox_sharing == "project-shared"
     assert reopened_session.linked_session_ids == ["peer-1"]
-    assert (await reopened.get_container(session.session_id)) is not None

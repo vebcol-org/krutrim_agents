@@ -188,7 +188,7 @@ def wired_app(tmp_path, monkeypatch):
     monkeypatch.setattr(
         agent_run,
         "build_agent",
-        lambda profile, store, sandbox, checkpointer=None, extra_tools=None: object(),
+        lambda profile, store, sandbox, checkpointer=None, extra_tools=None, extra_middleware=None: object(),
     )
     _translator_calls.clear()
 

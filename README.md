@@ -23,8 +23,8 @@ apps/desktop (Tauri+Rust+TS) ─┘  (same React renderer as apps/web, wrapped i
                                                        │
                                              ┌─────────┴──────────┐
                                              ▼                    ▼
-                                  providers/ (OpenRouter,   harness/ (skills, prompts,
-                                  Ollama via LangChain)      evals, memory - per agent_key)
+                                  providers/ (OpenRouter)   harness/ (skills, prompts,
+                                                            evals, memory - per agent_key)
                                                                    │ execute / file ops
                                                                    ▼
                                                 One Docker sandbox per agent profile (read-only
@@ -88,7 +88,6 @@ Publishing to a private registry (GitHub Packages / a private PyPI index) remove
 - Node 20+, [pnpm](https://pnpm.io) 10+
 - Python via [uv](https://docs.astral.sh/uv/) (`brew install uv`) — uv manages its own Python 3.11, your system Python doesn't matter
 - Docker Desktop (or another Docker daemon) running — required for the agent sandboxes
-- Optional: [Ollama](https://ollama.com) running locally if you want any role on a local model instead of OpenRouter
 - Only if you're running the desktop app: a Rust toolchain (`rustup`/`cargo`) plus Tauri's [platform-specific system dependencies](https://v2.tauri.app/start/prerequisites/) (e.g. WebKitGTK on Linux). Not needed for the web app.
 
 ## Setup
@@ -139,7 +138,6 @@ More profiles (e.g. trading, sales) are planned; the plugin architecture is desi
 Two providers ship out of the box, each with its own Pydantic settings class (`backend/libs/krutrim_agents_core/src/krutrim_agents_core/providers/`):
 
 - **OpenRouter** (`openrouter.py`) — needs `OPENROUTER_API_KEY`; model id is whatever OpenRouter calls it (e.g. `deepseek/deepseek-v4-flash-0731`, `openai/gpt-4.1-mini`).
-- **Ollama** (`ollama.py`) — local, no key; needs `ollama serve` running (or the `docker/docker-compose.yml` `ollama` service) and the model pulled (`ollama pull llama3.1`).
 
 Settings are persisted per `(agent_key, role)` in `backend/harness/memory/settings.json` (gitignored), seeded from each profile's own `default_models` — the store itself has no per-agent knowledge and picks up a newly added profile's defaults automatically on the next backend start. Add a new provider by subclassing `ModelSettings`/`Provider` and registering it in `providers/registry.py` (this is core, shared by every agent).
 
@@ -160,7 +158,7 @@ Every filesystem operation and shell command an agent runs happens inside a lock
 - `harness/skills/common/*/SKILL.md` — skills shared by every agent (web research, sandboxed data analysis).
 - `harness/skills/<agent_key>/*/SKILL.md` — Claude-Code-style skill files specific to one agent, loaded by deepagents' `SkillsMiddleware`.
 - `harness/prompts/<agent_key>/*.md` — system prompts for that agent's main graph and each of its subagents, loaded by `krutrim_agents_core.harness.prompts.load_prompt(agent_key, name)`.
-- `harness/evals/datasets/<agent_key>.jsonl` + `evals/runner.py` — a standalone script (not part of `pytest`) that runs each task through that agent's real graph and checks required substrings. Needs real API/Ollama access: `uv run python harness/evals/runner.py <agent_key>`.
+- `harness/evals/datasets/<agent_key>.jsonl` + `evals/runner.py` — a standalone script (not part of `pytest`) that runs each task through that agent's real graph and checks required substrings. Needs real API access: `uv run python harness/evals/runner.py <agent_key>`.
 - `harness/memory/<agent_key>/AGENTS.md` — durable per-agent memory, loaded into that agent's system prompt. `harness/memory/runs/<agent_key>/` holds gitignored JSONL run transcripts (`krutrim_agents_core.harness.runs.RunLogger`); `harness/memory/settings.json` holds all agents' provider config (gitignored).
 
 ## Adding a new agent type

@@ -94,15 +94,10 @@ class AppSettings(BaseSettings):
     port: int = 8000
 
     harness_dir: Path = BACKEND_ROOT / "harness"
-    sandbox_image: str = "krutrim_agent-sandbox:latest"
-    # sandbox backend registry — "docker" is the only implementation today
-    sandbox_runtime: str = "docker"
-    sandbox_runtime_sources: list[str] = ["krutrim_agent_sandbox.docker_backend"]
 
     # LangGraph super-step cap for a single agent turn — raise it for deep
     # multi-tool / subagent research loops that legitimately need many steps.
-    # `krutrim_agent_agui.translator` reads the same env var directly (so it
-    # applies in the sandbox too, exported from RunConfig by the grpc server).
+    # `krutrim_agent_agui.translator` reads the same env var directly.
     graph_recursion_limit: int = 100
 
     # Automatic context management so a long turn doesn't blow the model's
@@ -121,50 +116,15 @@ class AppSettings(BaseSettings):
     context_trigger_tokens: int = 120_000
     context_keep_messages: int = 20
 
-    # Per-profile opt-in to running the whole agent graph inside the sandbox
-    # container over gRPC (see krutrim_agent_grpc). Others keep the in-process
-    # tool-backend path. `research` is the first profile enabled here.
-    in_sandbox_agent_profiles: list[str] = ["research"]
-    # Addressing for the in-sandbox runtime's TCP gRPC (host <-> container).
-    # Defaults suit a backend process running directly on a Docker Desktop host;
-    # override all three for a containerised backend, or for a non-Docker runtime
-    # (k8s, a cloud sandbox service) where the runtime port is reached by a
-    # routable name.
-    #   bind_host     — interface the per-turn HostBridge, allowlist egress
-    #                   proxy, and the published sandbox runtime port bind to.
-    #   dial_host     — host address the backend dials to reach that published
-    #                   sandbox runtime port (`_resolve_run_endpoint`).
-    #   callback_host — address the sandbox container dials to reach back to the
-    #                   host's HostBridge / egress proxy.
-    sandbox_bind_host: str = "127.0.0.1"
-    sandbox_dial_host: str = "127.0.0.1"
-    sandbox_callback_host: str = "host.docker.internal"
-    # User-defined Docker network to attach in-sandbox containers to. None → the
-    # default bridge, backend and sandbox talk over the host (dial_host /
-    # callback_host). Set to the backend's own compose network (e.g.
-    # "krutrim-agent-dev_default") for a containerised backend: the two then
-    # reach each other by container name on that network — no host port
-    # publishing — so pair it with
-    #   sandbox_dial_host      = (ignored; the sandbox container name is used)
-    #   sandbox_callback_host  = the backend's service alias on that network
-    sandbox_network: str | None = None
-    # How long to wait for a freshly-started in-sandbox AgentRuntime to answer
-    # Health before giving up. The first `docker run` of a newly-built image on
-    # macOS Docker Desktop (materializing the venv layer into the VM + vpnkit
-    # port setup) can take over a minute; warm starts are ~1s.
-    sandbox_runtime_health_timeout: float = 120.0
-    # Optional read-only bind mount of the repo's agent source over the image's
-    # baked copy, for local iteration without an image rebuild.
-    sandbox_agent_source_dir: Path | None = None
-    # Hosts an in-sandbox container may reach *directly* (exact or dot-suffix
-    # match, e.g. "example.com" also allows "api.example.com"). The container
-    # always runs behind the host's AllowlistEgressProxy (HTTP(S)_PROXY); this
-    # list is what the proxy forwards. Empty (default) = deny-all: the only
-    # unfiltered path off-box is the audited HostBridge call-home.
-    sandbox_egress_allowlist: list[str] = []
-    # Overrides `runs_dir` (default `harness/memory/runs`) — the in-sandbox
-    # runtime points this at the bind-mounted `out/runs` so RunLogger
-    # transcripts survive the container.
+    # When true, the per-run eval transcript (`RunLoggingMiddleware`,
+    # `harness/memory/runs/<agent_key>/<thread>.jsonl`) records full tool-call
+    # arguments and a preview of every tool/model result, not just their
+    # shapes. Off by default — turn on for eval capture.
+    eval_record_full_payloads: bool = False
+    # Max characters of any single result/response payload written to the eval
+    # transcript when `eval_record_full_payloads` is on.
+    eval_record_payload_max_chars: int = 4000
+    # Overrides `runs_dir` (default `harness/memory/runs`).
     runs_dir_override: Path | None = None
 
     # runtime data (projects, sessions, checkpoints, ...); override via KRUTRIM_AGENT_STORAGE_ROOT

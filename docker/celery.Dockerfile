@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# services/krutrim_agent_celery — the Celery worker/beat (idle-container reaper
-# + RAG embeddings precompute).
+# services/krutrim_agent_celery — the Celery worker (RAG document ingestion +
+# embeddings precompute).
 #
 #   base ─→ builder ─┬─→ dev    developer loop: source bind-mounted, a tuned
 #                    │          watchfiles reloader wraps the worker
@@ -27,10 +27,6 @@
 #  Vector store = faisslite | qdrant   (NOT a build-time choice — runtime
 #  VECTOR_STORE_BACKEND + COMPOSE_PROFILES=qdrant; see backend.Dockerfile)
 # ─────────────────────────────────────────────────────────────────────────────
-#
-# Same sibling-container relationship to the host Docker engine as
-# backend.Dockerfile: the reaper tears down krutrim-agent-sandbox-* containers
-# via the mounted /var/run/docker.sock. See ../docker/README.md.
 #
 # Build context is backend/ (the uv workspace root).
 
@@ -127,8 +123,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
-# See backend.Dockerfile: image defaults to this unprivileged user;
-# celery-worker opts back into root at the compose layer for the docker.sock.
+# See backend.Dockerfile: image runs as this unprivileged user.
 RUN groupadd --system app \
     && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app
 

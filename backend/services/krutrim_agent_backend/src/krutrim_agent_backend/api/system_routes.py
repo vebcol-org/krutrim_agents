@@ -1,5 +1,5 @@
-"""GET /api/system/extensions — reports which extension hooks, storage
-backend, and sandbox runtime are actually active. Read-only status, never
+"""GET /api/system/extensions — reports which extension hooks and storage
+backend are actually active. Read-only status, never
 raises on edition drift (that's `krutrim_agent_extensions.selfcheck`'s job, run once
 at startup) — this is what an external monitor or the frontend
 self-check polls to catch a hook silently reverting to its community
@@ -22,7 +22,6 @@ class ExtensionStatusResponse(BaseModel):
     edition: str
     hooks: dict[str, str]
     storage_backend: str
-    sandbox_runtime: str
 
 
 @router.get("/extensions")
@@ -32,5 +31,4 @@ def get_extension_status() -> ExtensionStatusResponse:
         "edition": settings.edition,
         "hooks": {name: type(impl).__name__ for name, impl in hooks.items()},
         "storage_backend": settings.storage_backend,
-        "sandbox_runtime": settings.sandbox_runtime,
     }
