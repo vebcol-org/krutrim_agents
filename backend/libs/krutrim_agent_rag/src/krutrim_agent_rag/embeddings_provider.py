@@ -1,6 +1,5 @@
 """OpenRouter-hosted embeddings — the default embedder for every RAG ingestion
-path (file-path `/embed` and raw-text `/rag/text`), replacing the previous
-local-Ollama-only default so a session's FAISS index never mixes vectors from
+path (file-path `/embed` and raw-text `/rag/text`), so a session's FAISS index never mixes vectors from
 two different embedding models (mixing spaces silently corrupts retrieval —
 cosine/L2 distances stop meaning anything across models).
 

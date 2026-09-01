@@ -46,6 +46,10 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from krutrim_agents_core.builder import build_agent
+from krutrim_agents_core.harness.recording_backend import RecordingFilesystemBackend
+from krutrim_agents_core.harness.run_logging import RunLoggingMiddleware
+from krutrim_agents_core.harness.runs import RunLogger
+from krutrim_agents_core.providers.resolver import resolve_models
 from krutrim_agents_core.registry import get_profile
 
 if TYPE_CHECKING:
@@ -53,8 +57,6 @@ if TYPE_CHECKING:
     from krutrim_agent_management.models import SessionInfo
     from krutrim_agent_sandbox.registry import SandboxRegistry
     from langchain_core.tools import BaseTool
-
-    from krutrim_agents_core.providers.store import ProviderStore
 
 MAX_CROSS_AGENT_CALL_DEPTH = 3
 """Maximum chain length before a message_agent call is refused outright,
@@ -127,7 +129,6 @@ async def find_eligible_peers(
 async def invoke_agent_turn(
     *,
     store: Storage,
-    provider_store: ProviderStore,
     sandbox_registry: SandboxRegistry,
     project_id: str,
     caller_session_id: str,
@@ -164,6 +165,20 @@ async def invoke_agent_turn(
     target_profile = get_profile(target_agent.agent_key)
     next_call_chain = [*call_chain, caller_session_id]
 
+    # The callee runs on ITS OWN model config — the caller's session-level
+    # model override never leaks across the message_agent boundary.
+    target_agent_overrides = (
+        await store.read_agent_model_settings(target_agent.agent_id) or {}
+    )
+    target_session_overrides = (
+        await store.read_model_settings(target_session_id) or {}
+    )
+    target_models = resolve_models(
+        target_profile,
+        agent_overrides=target_agent_overrides,
+        session_overrides=target_session_overrides,
+    )
+
     handle = await sandbox_registry.get_or_create(target_session_id)
     try:
         checkpoint_path = (
@@ -178,19 +193,20 @@ async def invoke_agent_turn(
                 extra_tools.append(
                     message_agent_tool(
                         store=store,
-                        provider_store=provider_store,
                         sandbox_registry=sandbox_registry,
                         project_id=project_id,
                         caller_session_id=target_session_id,
                         call_chain=next_call_chain,
                     )
                 )
+            run_logger = RunLogger(target_agent.agent_key, target_session_id)
             graph = build_agent(
                 target_profile,
-                provider_store,
-                handle.backend,
+                target_models,
+                RecordingFilesystemBackend(handle.backend, run_logger),
                 checkpointer=checkpointer,
                 extra_tools=extra_tools,
+                extra_middleware=[RunLoggingMiddleware(run_logger)],
             )
             incoming = HumanMessage(
                 content=message, name=f"peer_agent:{caller_session_id}"
@@ -217,7 +233,6 @@ async def invoke_agent_turn(
 def message_agent_tool(
     *,
     store: Storage,
-    provider_store: ProviderStore,
     sandbox_registry: SandboxRegistry,
     project_id: str,
     caller_session_id: str,
@@ -237,7 +252,6 @@ def message_agent_tool(
         to message each other (see project/session sandbox settings)."""
         return await invoke_agent_turn(
             store=store,
-            provider_store=provider_store,
             sandbox_registry=sandbox_registry,
             project_id=project_id,
             caller_session_id=caller_session_id,

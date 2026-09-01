@@ -142,7 +142,6 @@ async def test_invoke_agent_turn_rejects_self_message(tmp_path):
 
     result = await invoke_agent_turn(
         store=storage,
-        provider_store=None,
         sandbox_registry=None,
         project_id=project.project_id,
         caller_session_id=session.session_id,
@@ -162,7 +161,6 @@ async def test_invoke_agent_turn_rejects_cycle(tmp_path):
 
     result = await invoke_agent_turn(
         store=storage,
-        provider_store=None,
         sandbox_registry=None,
         project_id=project.project_id,
         caller_session_id=session_a.session_id,
@@ -182,7 +180,6 @@ async def test_invoke_agent_turn_rejects_depth_limit(tmp_path):
 
     result = await invoke_agent_turn(
         store=storage,
-        provider_store=None,
         sandbox_registry=None,
         project_id=project.project_id,
         caller_session_id=session_a.session_id,
@@ -203,7 +200,6 @@ async def test_invoke_agent_turn_rejects_ineligible_pair(tmp_path):
 
     result = await invoke_agent_turn(
         store=storage,
-        provider_store=None,
         sandbox_registry=None,
         project_id=project.project_id,
         caller_session_id=session_a.session_id,
@@ -222,7 +218,6 @@ async def test_invoke_agent_turn_unknown_target_returns_error_not_exception(tmp_
 
     result = await invoke_agent_turn(
         store=storage,
-        provider_store=None,
         sandbox_registry=None,
         project_id=project.project_id,
         caller_session_id=session_a.session_id,
@@ -284,7 +279,6 @@ async def test_invoke_agent_turn_happy_path_returns_reply_and_releases_sandbox(
     registry = FakeRegistry()
     reply = await invoke_agent_turn(
         store=storage,
-        provider_store=object(),
         sandbox_registry=registry,
         project_id=project.project_id,
         caller_session_id=caller.session_id,
@@ -331,7 +325,6 @@ async def test_invoke_agent_turn_releases_sandbox_even_if_graph_raises(
     with pytest.raises(RuntimeError):
         await invoke_agent_turn(
             store=storage,
-            provider_store=object(),
             sandbox_registry=registry,
             project_id=project.project_id,
             caller_session_id=caller.session_id,

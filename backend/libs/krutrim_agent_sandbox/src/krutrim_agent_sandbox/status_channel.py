@@ -1,11 +1,11 @@
-"""Live-status pub/sub for sandbox containers and background jobs.
+"""Live-status pub/sub for background jobs.
 
 Redis is the only implementation today (`RedisPubSubBackend`) — publish call
-sites (`SandboxRegistry`, the idle reaper, the embedding precompute task)
-depend on the `PubSubBackend` ABC, not on `redis` directly, so a future
-broker swap (RabbitMQ, per the pending migration plan) means writing one new
-class — nothing else changes. Celery's own broker/result-backend config is
-separate and already isolated from this module.
+sites (the embedding precompute / RAG document tasks) depend on the
+`PubSubBackend` ABC, not on `redis` directly, so a future broker swap
+(RabbitMQ, per the pending migration plan) means writing one new class —
+nothing else changes. Celery's own broker/result-backend config is separate
+and already isolated from this module.
 
 `publish()` is deliberately synchronous — a single fire-and-forget Redis
 command, not a long-lived loop — consistent with this codebase's sandbox
@@ -22,7 +22,6 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 
-CONTAINER_STATUS_CHANNEL = "sandbox:container:{owner_id}"
 JOB_STATUS_CHANNEL = "sandbox:job:{job_id}"
 
 
@@ -39,13 +38,6 @@ class RedisPubSubBackend(PubSubBackend):
 
     def publish(self, channel: str, message: str) -> None:
         self._client.publish(channel, message)
-
-
-def publish_container_status(
-    pubsub: PubSubBackend, owner_id: str, status: str, **extra
-) -> None:
-    payload = json.dumps({"status": status, **extra})
-    pubsub.publish(CONTAINER_STATUS_CHANNEL.format(owner_id=owner_id), payload)
 
 
 def publish_job_progress(

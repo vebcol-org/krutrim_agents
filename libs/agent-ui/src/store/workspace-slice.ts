@@ -1,9 +1,10 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { Agent, AgentMeta, Chat, Project, SessionInfo } from '@krutrim_agent/shared-types';
+import type { Agent, AgentMeta, Chat, ModelSelection, Project, SessionInfo } from '@krutrim_agent/shared-types';
 
 import {
   createAgent as apiCreateAgent,
   createAgentSession,
+  updateAgentModelSettings,
   createChat as apiCreateChat,
   createProject as apiCreateProject,
   deleteAgent as apiDeleteAgent,
@@ -45,6 +46,10 @@ export interface WorkspaceState {
   expandedProjectIds: string[];
   selection: WorkspaceSelection | null;
   isLoading: boolean;
+  /** `false` until the first `fetchWorkspace` settles (either way). Lets URL sync
+   * tell "still loading" apart from "loaded, and this agent/chat really is gone"
+   * so a deep link isn't bounced to `/` before the workspace data arrives. */
+  hasLoaded: boolean;
   error: string | null;
 }
 
@@ -58,6 +63,7 @@ const initialState: WorkspaceState = {
   expandedProjectIds: [],
   selection: null,
   isLoading: false,
+  hasLoaded: false,
   error: null,
 };
 
@@ -156,18 +162,30 @@ export const deleteProjectById = createAsyncThunk<string, string, { state: RootS
 
 export const createNewAgent = createAsyncThunk<
   { agent: Agent; sessionId: string },
-  { projectId: string; agentKey: string; displayName: string },
+  { projectId: string; agentKey: string; displayName: string; roleModels?: Record<string, ModelSelection> },
   { state: RootState; rejectValue: string }
->('workspace/createNewAgent', async ({ projectId, agentKey, displayName }, { getState, rejectWithValue }) => {
-  const { backendUrl } = getState().workspace;
-  try {
-    const agent = await apiCreateAgent(backendUrl, projectId, { agent_key: agentKey, display_name: displayName });
-    const session = await createAgentSession(backendUrl, projectId, agent.agent_id);
-    return { agent, sessionId: session.session_id };
-  } catch (err) {
-    return rejectWithValue(describeError(err, 'Failed to create agent.'));
-  }
-});
+>(
+  'workspace/createNewAgent',
+  async ({ projectId, agentKey, displayName, roleModels }, { getState, rejectWithValue }) => {
+    const { backendUrl } = getState().workspace;
+    try {
+      const agent = await apiCreateAgent(backendUrl, projectId, { agent_key: agentKey, display_name: displayName });
+      const session = await createAgentSession(backendUrl, projectId, agent.agent_id);
+      // Apply any per-role model picks from the New Agent sheet. Best-effort —
+      // a failed model PUT doesn't undo the created agent.
+      for (const [role, selection] of Object.entries(roleModels ?? {})) {
+        try {
+          await updateAgentModelSettings(backendUrl, agent.agent_id, role, selection);
+        } catch {
+          /* keep going — the agent still uses the profile default for that role */
+        }
+      }
+      return { agent, sessionId: session.session_id };
+    } catch (err) {
+      return rejectWithValue(describeError(err, 'Failed to create agent.'));
+    }
+  },
+);
 
 export const renameAgent = createAsyncThunk<
   Agent,
@@ -248,13 +266,14 @@ export const moveChatToProject = createAsyncThunk<
   }
 });
 
-/** Opens an agent: loads its sessions, resumes the oldest one, or creates a
- * fresh one if it has none yet. Mirrors `chat-slice.ts`'s `openChat`. */
+/** Opens an agent: loads its sessions and resumes one — `sessionId` if that
+ * session still exists (a deep link / reload), otherwise the oldest, otherwise a
+ * fresh one. Mirrors `chat-slice.ts`'s `openChat`. */
 export const openAgent = createAsyncThunk<
   { agentId: string; sessionId: string },
-  string,
+  { agentId: string; sessionId?: string | null },
   { state: RootState; rejectValue: string }
->('workspace/openAgent', async (agentId, { getState, rejectWithValue }) => {
+>('workspace/openAgent', async ({ agentId, sessionId }, { getState, rejectWithValue }) => {
   const { backendUrl, projects, agentsByProject } = getState().workspace;
   const projectId = projects.find((p) => agentsByProject[p.project_id]?.some((a) => a.agent_id === agentId))
     ?.project_id;
@@ -262,7 +281,8 @@ export const openAgent = createAsyncThunk<
   try {
     const sessions = await fetchAgentSessions(backendUrl, projectId, agentId);
     const ordered = sortByCreatedAtAsc(sessions);
-    const session = ordered[0] ?? (await createAgentSession(backendUrl, projectId, agentId));
+    const wanted = sessionId ? ordered.find((s) => s.session_id === sessionId) : undefined;
+    const session = wanted ?? ordered[0] ?? (await createAgentSession(backendUrl, projectId, agentId));
     return { agentId, sessionId: session.session_id };
   } catch (err) {
     return rejectWithValue(describeError(err, 'Failed to open agent.'));
@@ -296,6 +316,7 @@ const workspaceSlice = createSlice({
       })
       .addCase(fetchWorkspace.fulfilled, (state, action) => {
         state.isLoading = false;
+        state.hasLoaded = true;
         state.projects = action.payload.projects;
         state.agentsByProject = action.payload.agentsByProject;
         state.chatsByProject = action.payload.chatsByProject;
@@ -304,6 +325,7 @@ const workspaceSlice = createSlice({
       })
       .addCase(fetchWorkspace.rejected, (state, action) => {
         state.isLoading = false;
+        state.hasLoaded = true;
         state.error = action.payload ?? action.error.message ?? 'Failed to load the workspace.';
       })
 
@@ -441,6 +463,7 @@ const workspaceSlice = createSlice({
 
       .addCase(openAgent.fulfilled, (state, action) => {
         state.selection = { kind: 'agent', agentId: action.payload.agentId, sessionId: action.payload.sessionId };
+        state.error = null;
       })
       .addCase(openAgent.rejected, (state, action) => {
         state.error = action.payload ?? action.error.message ?? 'Failed to open agent.';

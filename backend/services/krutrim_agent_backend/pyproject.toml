@@ -21,7 +21,6 @@ dependencies = [
     "celery[redis]>=5.6.3",
     "krutrim-agent-management",
     "krutrim-agent-agui",
-    "krutrim-agent-grpc",
     "krutrim-agent-sandbox",
     "krutrim-agent-rag",
     "krutrim-agents",
@@ -31,7 +30,6 @@ dependencies = [
 [tool.uv.sources]
 krutrim-agent-management = { workspace = true }
 krutrim-agent-agui = { workspace = true }
-krutrim-agent-grpc = { workspace = true }
 krutrim-agent-sandbox = { workspace = true }
 krutrim-agent-rag = { workspace = true }
 krutrim-agents = { workspace = true }

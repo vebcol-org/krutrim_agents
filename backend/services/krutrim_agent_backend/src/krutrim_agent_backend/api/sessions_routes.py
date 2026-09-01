@@ -149,18 +149,20 @@ async def delete_session(session_id: str, request: Request) -> SessionDeletedRes
     return {"status": "deleted", "session_id": session_id}
 
 
-@router.get("/{session_id}/messages")
+@router.get("/{session_id}/messages", response_model_exclude_defaults=True)
 async def get_session_messages(session_id: str, request: Request) -> SessionMessagesResponse:
     """Reads history straight out of the session's LangGraph checkpoint
     (`langgraph_checkpoint.sqlite`), keyed by `thread_id == session_id`, and
-    reduces it to the user-visible turns (see `to_display_messages`). Returns
-    `[]` if the session has never been messaged (no checkpoint file yet).
+    reduces it to the visible turns plus the tool calls each made (see
+    `to_display_messages`). Returns `[]` if the session has never been messaged
+    (no checkpoint file yet). `response_model_exclude_defaults` keeps a plain
+    text turn down to `{role, content}`.
 
     Works for both `Chat`-owned sessions (checkpoint written by `POST /api/chat`)
     and `Agent`-owned ones (in-sandbox run's checkpoint, synced back to the
     session dir by `SandboxRegistry.release` -> `import_scope`)."""
     storage = _storage(request)
-    await _get_session(storage, session_id)
+    session = await _get_session(storage, session_id)
 
     checkpoint_path = storage.session_dir(session_id) / CHECKPOINT_FILENAME
     if not checkpoint_path.exists():
@@ -173,7 +175,11 @@ async def get_session_messages(session_id: str, request: Request) -> SessionMess
         graph = build_chat_graph(object(), checkpointer=checkpointer)
         state = await graph.aget_state(config)
     lc_messages = (state.values or {}).get("messages", []) if state else []
-    display = to_display_messages(lc_messages)
+    # Agent sessions get the tool-call scratchpad too (the frontend rebuilds its
+    # work-log panel from it); plain chat keeps the lean {role, content} shape.
+    display = to_display_messages(
+        lc_messages, include_tool_calls=session.owner_type == "agent"
+    )
     logger.debug(
         "sessions: {} history has {} checkpoint message(s), {} visible",
         session_id,

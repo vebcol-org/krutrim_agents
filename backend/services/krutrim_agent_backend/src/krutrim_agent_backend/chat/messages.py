@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 
 def _text(content: Any) -> str:
@@ -41,23 +42,60 @@ def from_lc_messages(messages: list[BaseMessage]) -> list[dict[str, str]]:
     ]
 
 
-def to_display_messages(messages: list[BaseMessage]) -> list[dict[str, str]]:
-    """The user-visible transcript for reloading a past conversation: human
-    turns plus assistant turns that actually carried text.
+def to_display_messages(
+    messages: list[BaseMessage], *, include_tool_calls: bool = False
+) -> list[dict[str, Any]]:
+    """The transcript for reloading a past conversation.
 
-    Drops `ToolMessage`s, tool-call-only (empty-text) assistant turns, and
-    system messages — the same subset the live AG-UI stream renders as chat
-    bubbles (tool calls go to the trace panel, not the message list). Matters
-    for in-sandbox agent sessions (`research`), whose LangGraph checkpoint
-    stores the full ReAct scratchpad, not just the visible turns.
+    Always: human turns and assistant turns that carried text. System messages
+    and standalone `ToolMessage`s are dropped.
+
+    With `include_tool_calls` (agent sessions — `research` etc., whose LangGraph
+    checkpoint holds the full ReAct scratchpad): assistant turns also report the
+    tools they called, each with its result folded in from the matching
+    `ToolMessage`, and a tool-call-only turn (no text) is kept so the reloaded
+    work-log panel matches what the live stream showed. Plain `chat` sessions
+    pass this `False` and get just `{role, content}` per turn, as before.
+
+    An assistant turn cut off by a client Stop / dropped connection carries
+    `additional_kwargs["interrupted"]` (set by
+    `krutrim_agent_agui.translator._persist_partial_turn`); it's surfaced so the
+    frontend routes that partial text to its work-log column, not the
+    finished-report view (see `render-payload.ts` / the agent turn splitter).
     """
-    out: list[dict[str, str]] = []
+    results: dict[str, str] = {
+        m.tool_call_id: _text(m.content)
+        for m in messages
+        if isinstance(m, ToolMessage) and getattr(m, "tool_call_id", None)
+    }
+
+    out: list[dict[str, Any]] = []
     for m in messages:
         text = _text(getattr(m, "content", ""))
         if isinstance(m, HumanMessage):
             out.append({"role": "user", "content": text})
-        elif isinstance(m, AIMessage) and text.strip():
-            out.append({"role": "assistant", "content": text})
+        elif isinstance(m, AIMessage):
+            tool_calls = (
+                [
+                    {
+                        "id": tc.get("id") or "",
+                        "name": tc.get("name") or "",
+                        "args": json.dumps(tc.get("args") or {}, ensure_ascii=False, sort_keys=True),
+                        "result": results.get(tc.get("id") or ""),
+                    }
+                    for tc in (getattr(m, "tool_calls", None) or [])
+                ]
+                if include_tool_calls
+                else []
+            )
+            if not text.strip() and not tool_calls:
+                continue  # nothing the reader would see
+            entry: dict[str, Any] = {"role": "assistant", "content": text}
+            if tool_calls:
+                entry["tool_calls"] = tool_calls
+            if (getattr(m, "additional_kwargs", None) or {}).get("interrupted"):
+                entry["interrupted"] = True
+            out.append(entry)
     return out
 
 

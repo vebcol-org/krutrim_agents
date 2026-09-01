@@ -7,9 +7,8 @@ Everything needed to run the whole stack — frontend, backend, Celery worker, R
 | File | Builds | Used by |
 |---|---|---|
 | [`backend.Dockerfile`](./backend.Dockerfile) | `services/krutrim_agent_backend` — the FastAPI app. Multi-stage: `dev` (hot-reload) / `prod` (minimal, non-root) targets | both compose files' `backend` service |
-| [`celery.Dockerfile`](./celery.Dockerfile) | `services/krutrim_agent_celery` — the Celery worker/beat (idle-container reaper, embeddings precompute). Same `dev` / `prod` targets | both compose files' `celery-worker` service |
+| [`celery.Dockerfile`](./celery.Dockerfile) | `services/krutrim_agent_celery` — the Celery worker (RAG document ingestion, embeddings precompute). Same `dev` / `prod` targets | both compose files' `celery-worker` service |
 | [`frontend.Dockerfile`](./frontend.Dockerfile) | `apps/web` — Vite/React. `dev` target = Vite dev server + HMR; `prod` target = static build served by unprivileged nginx | both compose files' `frontend` service |
-| [`sandbox.Dockerfile`](./sandbox.Dockerfile) | The locked-down image every **agent sandbox** container runs (no network, read-only rootfs, non-root) | Referenced by name (`krutrim_agent-sandbox:latest`) from backend/celery code — never built *by* compose, see below |
 | [`nginx.conf`](./nginx.conf) | Static-file + SPA fallback config for the frontend image (listens on 8080, non-root) | `frontend.Dockerfile` |
 | [`docker-compose.yml`](./docker-compose.yml) | **Production** stack — `prod` image targets, no source mounted, immutable | You, directly |
 | [`docker-compose.dev.yml`](./docker-compose.dev.yml) | **Local dev** stack — `dev` image targets, source bind-mounted, in-container reloaders | You, directly |
@@ -21,30 +20,18 @@ Everything needed to run the whole stack — frontend, backend, Celery worker, R
 Your laptop's Docker engine
 ├─ frontend        (nginx, static build)          :4200 → browser
 ├─ backend         (FastAPI)                       :8000 → browser (AG-UI/SSE)
-├─ celery-worker   (reaper + embeddings precompute)
+├─ celery-worker   (RAG ingestion + embeddings precompute)
 ├─ redis           (Celery broker/result-backend)  :6379
-├─ ollama          (optional, local LLM provider)  :11434
-│
-└─ krutrim-agent-sandbox-* (one per session, created/torn down BY backend/celery)
 ```
 
-`backend` and `celery-worker` each get `/var/run/docker.sock` bind-mounted in. When their code (`krutrim_agent_sandbox.docker_backend`, via the `docker` Python SDK) asks Docker to start a sandbox container, it's talking to **this same host engine** — the sandbox container comes up as a *sibling* of `backend`, not nested inside it (no Docker-in-Docker). Run `docker ps` on your host and you'll see `krutrim-agent-sandbox-*` containers listed right alongside `backend`/`celery-worker`/`frontend`/`redis`.
-
-This means mounting the socket effectively gives `backend`/`celery-worker` root-equivalent control over your host's Docker daemon — that's the trade-off for "one command manages everything." It's the same reason the previous, non-containerized setup in the root README ran the backend directly on the host: either way, something needs unrestricted Docker access to create/tear down sandboxes.
+The agent graph runs **in-process** inside the `backend` container against a
+plain filesystem sandbox scoped to each session's workspace dir under
+`STORAGE_ROOT` — no per-session containers, no `/var/run/docker.sock` mount,
+no Docker-in-Docker.
 
 ## One-time setup
 
-### 1. The sandbox image
-
-The agent sandbox image is **not** built by `docker-compose.yml` — it just has to already exist in your host engine's image store by the name `backend`/`celery-worker` code expects (`KRUTRIM_AGENT_SANDBOX_IMAGE`, default `krutrim_agent-sandbox:latest`), because they reference it by name when asking the host engine to start a container:
-
-```bash
-docker build -f docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest backend
-```
-
-Rebuild it whenever `sandbox.Dockerfile` changes.
-
-### 2. faisslite over HTTPS (private repo)
+### 1. faisslite over HTTPS (private repo)
 
 `krutrim-agent-management` (used by both `krutrim_agent_backend` and `krutrim_agent_celery`) depends on `faisslite`, hosted at [github.com/visheshpanchal/faisslite](https://github.com/visheshpanchal/faisslite) — a **private** repo. `pyproject.toml`/`uv.lock` already point at it over HTTPS. `uv sync` inside the build needs credentials to clone it — no SSH key is set up on this machine, so instead the build takes a **GitHub token as a BuildKit secret**, mounted only for that one layer and never written into any image layer (see the `RUN --mount=type=secret,...` step in `backend.Dockerfile`/`celery.Dockerfile`).
 
@@ -66,7 +53,7 @@ One-time setup:
 
 If `docker/.secrets/github_token` doesn't exist, the build fails fast (`required=true` on the secret mount) rather than silently baking in a broken auth state.
 
-### 3. Env vars — one shared `.env`
+### 2. Env vars — one shared `.env`
 
 ```bash
 cp .env.example .env   # from the repo root — fill in OPENROUTER_API_KEY
@@ -98,9 +85,8 @@ docker compose -f docker/docker-compose.yml up -d
 - Redis: localhost:6379
 
 Images are built from each Dockerfile's `prod` target: no `uv`/`pnpm`/git, no
-build caches, non-root by default (`backend`/`celery-worker` opt back into
-root *at the compose layer* because they bind-mount the root-owned
-`/var/run/docker.sock`; `frontend` runs fully rootless on nginx-unprivileged).
+build caches, non-root (every service, including `frontend` on
+nginx-unprivileged).
 `no-new-privileges`, `init: true`, and — for the frontend — a `read_only`
 rootfs with tmpfs scratch are set. Nothing from your working tree is mounted
 in, so a **code change means `build` + `up` again**.
@@ -186,7 +172,7 @@ the *named volumes* (this does **not** touch your bind-mounted data — see belo
 
 Two things are bind-mounted from your real home directory / repo, not stored inside the containers, so `docker compose down` / image rebuilds never lose them:
 
-- `${HOME}/.krutrim_agent` → **the same path** inside `backend` and `celery-worker` (an *identity* mount, and `STORAGE_ROOT` is set to it) — projects, sessions, the sandbox-container registry (see `krutrim_agent_management/local.py`'s docstring for the full layout). It's mounted at the host path, not a tidy `/data`, on purpose: `backend`/`celery-worker` drive the **host** Docker daemon over the mounted socket, so the sandbox bind-mount sources they derive from `STORAGE_ROOT` have to be paths that daemon can resolve. A container-only `/data` gets rejected with `mounts denied … not shared from the host`.
+- `${HOME}/.krutrim_agent` → the same path inside `backend` and `celery-worker` (`STORAGE_ROOT` is set to it) — projects, sessions, and per-session workspaces (see `krutrim_agent_management/local.py`'s docstring for the full layout). Bind-mounted to your real home dir so it survives `docker compose down`/rebuilds, and shared between the two services so RAG ingestion sees the same workspaces the backend writes.
 - `backend/harness/memory` → `/app/harness/memory` — per-agent provider settings (`settings.json`) and run transcripts. Gitignored, written at runtime.
 
 Both processes point at the *same* `STORAGE_ROOT` (matching how the non-Docker dev setup already runs backend + Celery against one shared `~/.krutrim_agent`) — see that module's docstring for the "not safe for concurrent writes across processes" caveat, which is an existing constraint, not something Docker introduces.

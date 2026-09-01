@@ -19,7 +19,6 @@
     "paths": {
       "@krutrim_agent/agent-ui": ["./libs/agent-ui/src/index.ts"],
       "@krutrim_agent/shared-types": ["./libs/shared-types/src/index.ts"],
-      "@krutrim_agent/agent-renderers": ["./libs/agent-renderers/src/index.ts"],
       "@krutrim_agent/agent-dashboard": ["./libs/agent-dashboard/src/index.ts"],
       "@krutrim_agent/ui": ["./libs/ui/src/index.ts"],
       "@krutrim_agent/tauri-utils": ["./libs/tauri-utils/src/index.ts"],

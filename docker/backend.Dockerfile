@@ -138,10 +138,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
-# Unprivileged runtime user. The image defaults to it; the services that
-# bind-mount the root-owned /var/run/docker.sock (backend, celery-worker) opt
-# back into root at the compose layer, next to that mount — see
-# docker-compose.yml. no-new-privileges still blocks setuid escalation there.
+# Unprivileged runtime user — the image runs as it in every stack.
 RUN groupadd --system app \
     && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app
 

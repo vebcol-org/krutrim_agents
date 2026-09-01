@@ -10,7 +10,6 @@ from krutrim_agent_management.local import LocalStorage
 from krutrim_agent_management.models import (
     Agent,
     Chat,
-    ContainerRecord,
     OwnerType,
     Project,
     SessionInfo,
@@ -22,7 +21,6 @@ __all__ = [
     "Agent",
     "BlobStore",
     "Chat",
-    "ContainerRecord",
     "LocalBlobStore",
     "LocalStorage",
     "OwnerType",

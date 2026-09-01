@@ -31,11 +31,11 @@ from .prompts import render_system_prompt
 from .reply_cleanup import ResearchReplyCleanupMiddleware
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from deepagents.backends.protocol import BackendProtocol
     from krutrim_agents_core.builder import DeepAgentContext
-    from krutrim_agents_core.providers.store import ProviderStore
+    from krutrim_agents_core.providers.base import ModelSettings
     from langchain_core.messages import AnyMessage
     from langchain_core.tools import BaseTool
     from langgraph.graph.state import CompiledStateGraph
@@ -62,7 +62,7 @@ def _tools() -> list[BaseTool]:
     return [web_search, fetch_url, rag_tool]
 
 
-def _subagents(store: ProviderStore) -> list[SubAgent]:
+def _subagents(models: Mapping[str, ModelSettings]) -> list[SubAgent]:
     researcher: SubAgent = {
         "name": "researcher",
         "description": (
@@ -71,7 +71,7 @@ def _subagents(store: ProviderStore) -> list[SubAgent]:
         ),
         "system_prompt": load_prompt(KEY, "researcher"),
         "tools": [web_search, fetch_url],
-        "model": build_chat_model(store.get(KEY, "researcher")),
+        "model": build_chat_model(models["researcher"]),
     }
     critic: SubAgent = {
         "name": "critic",
@@ -81,14 +81,14 @@ def _subagents(store: ProviderStore) -> list[SubAgent]:
         ),
         "system_prompt": load_prompt(KEY, "critic"),
         "tools": [],
-        "model": build_chat_model(store.get(KEY, "critic")),
+        "model": build_chat_model(models["critic"]),
     }
     writer: SubAgent = {
         "name": "writer",
         "description": "Turns research notes and critique feedback into the final structured report.",
         "system_prompt": load_prompt(KEY, "writer"),
         "tools": [],
-        "model": build_chat_model(store.get(KEY, "writer")),
+        "model": build_chat_model(models["writer"]),
     }
     return [researcher, critic, writer]
 

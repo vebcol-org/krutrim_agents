@@ -4,27 +4,86 @@ Instructions for AI coding agents (and a quick orientation for humans) working i
 
 ## Project directory architecture
 
+Each entry notes **what it is** and **why it exists as its own package** (the
+recurring reason is the core/plugin split — see the section below).
+
 ```
 apps/
-  web/            Vite + React + TS — primary web frontend (:4200)
-  desktop/        Tauri (Rust shell) + same React renderer (:4300 dev)
-backend/
-  libs/             uv workspace libraries (krutrim_agent_management, krutrim_agent_sandbox, krutrim_agents)
-  services/         uv workspace deployables (krutrim_agent_backend — the FastAPI app; krutrim_agent_celery — idle-container reaper)
-  harness/          Content data: prompts, skills, memory, eval datasets — not code
-  tests/            pytest suite (spans every workspace package — `uv run pytest` from backend/)
-libs/
-  agent-ui/         Core frontend shell (chat panel, settings panel, AG-UI client wiring) — never touched when adding an agent
-  agent-renderers/  Plugin surface for the canvas — per-agent renderer registry
-  shared-types/     Hand-synced TS mirror of backend Pydantic models
-  ui/               Generic UI primitives (shadcn/radix style)
-  tauri-utils/      Tauri-runtime detection helper
-docker/             sandbox.Dockerfile (agent execution image) + docker-compose.yml (optional local Ollama)
-docs/               Living documentation (app-flow.md, usage/use-case docs)
-.architecture/      Design-decision notes — see below
+  web/       Vite + React + TS web frontend (:4200) — primary delivery target.
+  desktop/   Tauri (Rust shell) hosting the SAME React renderer as web (:4300 dev)
+             — native desktop build with no second UI codebase.
+
+backend/            uv workspace. `uv run` anything from here.
+  libs/
+    krutrim_agents_core/   Core agent runtime: profile model + registry + builder,
+                           the provider/model catalog + resolver, cross-agent
+                           messaging, harness loaders (prompts/skills), the
+                           run-recording backend. WHY: the stable spine every
+                           profile builds on — profiles plug in, never edit it.
+    krutrim_agents/         Agent profile *content* — one subpackage per agent
+                           type under `profiles/<key>/` (prompts, tools, graph
+                           wiring). WHY: the plugin side of the split; a new
+                           agent is a new folder here, nothing else in backend/.
+    krutrim_agent_agui/    In-tree LangGraph→AG-UI SSE translator + plugin hooks.
+                           WHY: owned in-repo (not the upstream package) so
+                           per-run instrumentation and the interrupt/partial-
+                           persist logic can hook the stream.
+    krutrim_agent_management/  Pluggable persistence: projects, agents, sessions,
+                           agent memory, blob store, result cache. WHY: one
+                           `Storage` ABC so the app isn't bound to one datastore.
+    krutrim_agent_sandbox/  Sandbox registry + status channel + exceptions
+                           (filesystem-scoped run isolation; the old Docker/gRPC
+                           layer is removed). WHY: confines agent file I/O to a
+                           per-session workspace.
+    krutrim_agent_rag/     Vector-store I/O, chunking, embeddings, retrieval, and
+                           `rag_tool`. WHY: one RAG stack shared by the FastAPI
+                           app and the Celery ingestion worker.
+    krutrim_agent_doc/     Document parsing for RAG ingestion (text/markdown +
+                           PDF/DOCX via docling). WHY: isolates heavy parser
+                           deps behind a registry the Celery task calls.
+    krutrim_agent_extensions/  Extension contracts, registry, middleware, self-
+                           check. WHY: optional/third-party add-on surface kept
+                           out of core.
+    krutrim_agent_celery_core/  Celery app factory. WHY: shared config so the
+                           backend and the worker build the same client.
+    krutrim_agent_utils/   Dependency-free primitives: plugin registry, atomic
+                           JSON write. WHY: reused everywhere, must stay light.
+  services/
+    krutrim_agent_backend/  FastAPI app: AG-UI agent-run streaming, plain chat,
+                           project/session/settings CRUD. WHY: the deployable
+                           API both frontends talk to.
+    krutrim_agent_celery/   Celery worker: RAG ingestion + embedding precompute
+                           against the same storage libs. WHY: keeps slow
+                           document work off the request path.
+  harness/     Content/data, not code: composable system-prompt fragments + the
+               markdown export spec, skills, agent memory, eval datasets. WHY:
+               editable (and swappable per deployment) without touching code.
+  tests/       pytest suite spanning every workspace package.
+
+libs/          Frontend (Nx) packages.
+  agent-ui/         The whole `<Agent>` product frontend. `components/{shell,
+                    thread,panels,sheets}/` is the agent-agnostic frame (history
+                    rail, composer, message list, settings panels). `screens/` is
+                    the per-agent plugin surface: `screens/<key>/` exports an
+                    `AgentScreenModule` (`Center` pane + optional `OutputRenderer`
+                    + `turnSplitter`); `home`, `chat` and each agent type are all
+                    modules in `screens/registry.ts`. `api/ hooks/ store/` are the
+                    shared data layer. WHY: one package; adding an agent is a
+                    `screens/<key>/` folder + one registry line, nothing in the
+                    frame changes. (Absorbed the former `agent-renderers` package.)
+  shared-types/     Hand-synced TS mirror of backend Pydantic response models.
+                    WHY: no codegen; the API contract stays explicit and diffable.
+  ui/               Generic shadcn/radix-style primitives. WHY: the design-system
+                    layer shared by every frontend surface.
+  tauri-utils/      Tauri-runtime detection. WHY: lets the shared renderer branch
+                    web vs. desktop at runtime.
+
+docker/          sandbox.Dockerfile (agent execution image) + docker-compose.yml.
+docs/            Living documentation (app-flow.md, usage/use-case docs).
+.architecture/   Design-decision notes — see below (strict edit policy).
 ```
 
-Core vs. plugin split (see README.md and `.architecture/core-plugin-architecture.md` for the full writeup): the FastAPI app (`krutrim_agent_backend`), providers system, Docker sandbox (`krutrim_agent_sandbox`), harness loaders, `krutrim_agents_core/registry.py`, `krutrim_agents_core/builder.py`, `libs/ui`, and `libs/agent-ui` are **core** — adding a new agent profile never requires editing them. New agent types are added purely under `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/` and (optionally) `libs/agent-renderers/src/<key>/`.
+Core vs. plugin split (see README.md and `.architecture/core-plugin-architecture.md` for the full writeup): the FastAPI app (`krutrim_agent_backend`), the providers system, the sandbox (`krutrim_agent_sandbox`), harness loaders, `krutrim_agents_core/registry.py`, `krutrim_agents_core/builder.py`, `libs/ui`, and the `agent-ui` frame (`components/{shell,thread,panels,sheets}/`, `api/`, `hooks/`, `store/`) are **core** — adding a new agent profile never requires editing them. New agent types are added purely under `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/` and (optionally) `libs/agent-ui/src/screens/<key>/` (an `AgentScreenModule` — its `Center` pane, `OutputRenderer`, and `turnSplitter`) plus one line in `libs/agent-ui/src/screens/registry.ts`.
 
 ## Reference `.architecture/` for design context
 

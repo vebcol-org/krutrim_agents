@@ -3,7 +3,7 @@ import { randomUUID } from '@ag-ui/client';
 import type { RagDocument } from '@krutrim_agent/shared-types';
 
 import { deleteSessionRagDocument, fetchSessionRagDocuments, submitRagFile } from '../api/sessions';
-import type { RagFileStatus } from '../components/agent/rag-file-row';
+import type { RagFileStatus } from '../components/thread/rag-file-row';
 
 /**
  * The files attached to one chat/agent session — the persisted RAG documents

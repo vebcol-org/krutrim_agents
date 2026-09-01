@@ -12,7 +12,6 @@ from typing import Any
 from krutrim_agent_management.models import (
     Agent,
     Chat,
-    ContainerRecord,
     OwnerType,
     Project,
     SessionInfo,
@@ -221,6 +220,34 @@ class Storage(ABC):
     @abstractmethod
     async def write_usage(self, session_id: str, data: dict[str, Any]) -> None: ...
 
+    # -- Model settings overrides --------------------------------------
+    # Per-role provider/model picks, shaped `{role: {provider, model,
+    # temperature?, max_tokens?}}` and possibly partial per role. Two scopes:
+    # per agent instance (`agents/{agent_id}/model_settings.json`, set from the
+    # agent settings panel) and per session (`sessions/{session_id}/
+    # model_settings.json`, the chat-composer model switcher). Neither is the
+    # source of truth for *what can be picked* (that's the static
+    # `krutrim_agents_core.providers.catalog`); `providers.resolver` merges
+    # profile defaults < agent < session into the effective `ModelSettings`.
+
+    @abstractmethod
+    async def read_agent_model_settings(self, agent_id: str) -> dict[str, Any] | None:
+        """Returns None if this agent instance has no per-role overrides."""
+
+    @abstractmethod
+    async def write_agent_model_settings(
+        self, agent_id: str, data: dict[str, Any]
+    ) -> None: ...
+
+    @abstractmethod
+    async def read_model_settings(self, session_id: str) -> dict[str, Any] | None:
+        """Returns None if this session has no per-role overrides."""
+
+    @abstractmethod
+    async def write_model_settings(
+        self, session_id: str, data: dict[str, Any]
+    ) -> None: ...
+
     # -- RAG document manifest (sessions/{session_id}/rag/manifest.json) --
     # A small append-only record of every document ingested into a session's
     # vector index (`document_id`, `title`, `filename`, `source_path`,
@@ -254,29 +281,11 @@ class Storage(ABC):
         self, project_id: str, namespace: str, key: str, value: Any
     ) -> None: ...
 
-    # -- Sandbox containers (owner_id -> ContainerRecord; owner_id may be a session, project, or channel) --
-
-    @abstractmethod
-    async def get_container(self, owner_id: str) -> ContainerRecord | None:
-        """Returns None if no container record exists for this owner (never started, or already reaped)."""
-
-    @abstractmethod
-    async def upsert_container(self, record: ContainerRecord) -> None:
-        """Insert or fully replace the record for `record.owner_id`."""
-
-    @abstractmethod
-    async def list_containers(
-        self, *, status: str | None = None
-    ) -> list[ContainerRecord]:
-        """Used by the idle-container reaper to scan for candidates. `status=None` returns all."""
-
-    @abstractmethod
-    async def delete_container(self, owner_id: str) -> None:
-        """No-op (not an error) if no record exists for this owner."""
-
-    # -- Session workspace mirror (sessions/{session_id}/workspace/) -----
-    # A filesystem mirror of a sandbox container's /workspace, synced on
-    # teardown and read on hot-reload or for passive (no-container-running) reads.
+    # -- Session workspace (sessions/{session_id}/workspace/) -----
+    # The agent's working directory for a session. The in-process
+    # `FilesystemBackend` (see `krutrim_agent_sandbox.registry`) reads and
+    # writes it directly; RAG ingestion and the sessions file API read it
+    # through these methods.
 
     @abstractmethod
     async def read_workspace_files(self, session_id: str) -> list[str]:

@@ -1,25 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { HttpAgent, randomUUID, type Message, type RunAgentParameters } from '@ag-ui/client';
-import type { TraceStep } from '@krutrim_agent/agent-renderers';
+
+import type { TraceStep } from '../screens/types';
 
 /**
  * The shared AG-UI streaming client. Both the Agent flow
  * (`POST /agents/{agentId}`, see `use-agent-chat.ts`) and the plain Chat flow
  * (`POST /api/chat`, see `use-chat-stream.ts`) are the same protocol over the
- * same `@ag-ui/client` `HttpAgent` — this hook is that shared core, pointed at
- * whatever `url` the caller passes.
+ * same `@ag-ui/client` `HttpAgent` — this hook is that shared core.
  *
- * On top of `@ag-ui/client`'s own message accumulation it tracks two extra
- * views of a run:
+ * Extra views on top of `@ag-ui/client`'s message accumulation:
  *
- * - `trace` — the low-level step / tool-call / reasoning event stream, for the
- *   research renderer's "agent activity" panel (unchanged from the old
- *   `useAgentChat`).
- * - `reasoningByMessageId` — the streamed "thinking" text, keyed by the AG-UI
- *   message id it belongs to (the backend emits the reasoning message and the
- *   assistant text message under the *same* id), so a message bubble can render
- *   its own thinking disclosure. `running` flips false on
- *   `REASONING_MESSAGE_END`.
+ * - `trace` — low-level step / tool-call / reasoning event stream.
+ * - `reasoningByMessageId` — streamed "thinking" text keyed by AG-UI message id.
+ * - `interrupted` — the run was stopped by the user / the connection dropped.
+ *   That is NOT an error. Aborting the SSE cancels the server run, which folds
+ *   the partial assistant turn into the session checkpoint backend-side (see
+ *   `krutrim_agent_agui.translator._persist_partial_turn`), so it comes back on
+ *   the next history load — there is no client-side persistence here.
  */
 
 export type { TraceStep };
@@ -31,7 +29,6 @@ export interface ReasoningEntry {
   endedAt?: number;
 }
 
-/** Latest values from the translator's `run_stats` / `token_usage` CUSTOM events. */
 export interface RunStats {
   elapsedMs?: number;
   inputTokens?: number;
@@ -40,24 +37,12 @@ export interface RunStats {
 }
 
 export interface UseAgentStreamOptions {
-  /** Full run endpoint URL. `null` → the hook stays inert and `sendMessage` no-ops. */
   url: string | null;
-  /** Optional POST endpoint that cancels an in-flight server-side run (in-sandbox
-   * agents). `stop()` still aborts the local SSE stream when this is absent. */
   interruptUrl?: string | null;
-  /** AG-UI `threadId`; reused across runs so the backend resumes the right checkpoint.
-   * Also the identity the internal `HttpAgent` is memoised on — change it to start a
-   * fresh conversation (a new `HttpAgent`, re-seeded from `initialMessages`). */
   threadId: string | null;
-  /** History to seed a freshly-built `HttpAgent` with (read once, at build time — a
-   * changing array does not rebuild the agent). Used by the chat flow so a mid-session
-   * rebuild keeps prior turns. */
   initialMessages?: Message[];
-  /** Extra fields merged into every run's `forwardedProps` (chat identity, etc.). */
   forwardedProps?: Record<string, unknown>;
-  /** Fired for every `CUSTOM` AG-UI event (e.g. `chat_session`, `run_stats`). */
   onCustomEvent?: (name: string, value: unknown) => void;
-  /** Fired once when a run's `RUN_FINISHED` arrives. */
   onRunFinished?: () => void;
 }
 
@@ -68,14 +53,12 @@ export interface UseAgentStreamResult {
   runStats: RunStats | null;
   isRunning: boolean;
   error: string | null;
+  /** Stopped by the user / dropped connection — show a neutral notice, not an error. */
+  interrupted: boolean;
   sendMessage: (text: string) => void;
-  /** Abort the current run: cancels the local SSE stream and, if `interruptUrl`
-   * was provided, asks the server to cancel the in-sandbox turn too. */
   stop: () => void;
 }
 
-/** Best-effort plain-text extraction from an AG-UI `Message` (assistant replies here are
- * always plain text; user messages are plain strings from `sendMessage`). */
 export function messageText(message: Message): string {
   if (typeof message.content === 'string') return message.content;
   if (Array.isArray(message.content)) {
@@ -85,6 +68,8 @@ export function messageText(message: Message): string {
   }
   return '';
 }
+
+const isAbortError = (msg: string) => /abort|BodyStreamBuffer|cancell?ed|network error/i.test(msg);
 
 function upsertTrace(
   prev: TraceStep[],
@@ -100,8 +85,6 @@ function upsertTrace(
   return next;
 }
 
-/** Finds the most recent *started* step of `kind`/`label` — pairs a finish/content
- * event back to its start when the underlying AG-UI event carries no shared id. */
 function findLastStarted(steps: TraceStep[], kind: TraceStep['kind'], label?: string): TraceStep | undefined {
   for (let i = steps.length - 1; i >= 0; i--) {
     const step = steps[i];
@@ -127,9 +110,8 @@ export function useAgentStream({
   const [runStats, setRunStats] = useState<RunStats | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interrupted, setInterrupted] = useState(false);
 
-  // Kept in refs so a changing callback identity / forwardedProps object doesn't
-  // tear down and rebuild the `HttpAgent` (which would drop an in-flight stream).
   const callbacksRef = useRef({ onCustomEvent, onRunFinished });
   callbacksRef.current = { onCustomEvent, onRunFinished };
   const forwardedPropsRef = useRef(forwardedProps);
@@ -137,14 +119,11 @@ export function useAgentStream({
   const initialMessagesRef = useRef(initialMessages);
   initialMessagesRef.current = initialMessages;
 
-  // The reasoning message currently streaming — lets an END/CONTENT event with a
-  // mismatched id still resolve to the open entry.
   const activeReasoningIdRef = useRef<string | null>(null);
+  const abortedByUserRef = useRef(false);
 
   const agent = useMemo(() => {
     if (!url) return null;
-    // `initialMessages` is read from a ref, not a dep — only a `url`/`threadId`
-    // change (i.e. a new conversation) rebuilds the agent and re-seeds it.
     return new HttpAgent({
       url,
       threadId: threadId ?? undefined,
@@ -158,7 +137,9 @@ export function useAgentStream({
     setReasoningByMessageId({});
     setRunStats(null);
     setError(null);
+    setInterrupted(false);
     activeReasoningIdRef.current = null;
+    abortedByUserRef.current = false;
     if (!agent) return;
 
     const bumpReasoning = (id: string | null, patch: (entry: ReasoningEntry) => ReasoningEntry) => {
@@ -172,8 +153,14 @@ export function useAgentStream({
 
     const { unsubscribe } = agent.subscribe({
       onMessagesChanged: ({ messages: updated }) => setMessages([...updated]),
-      onRunErrorEvent: ({ event }) => setError(event.message),
-      onRunFinishedEvent: () => callbacksRef.current.onRunFinished?.(),
+      onRunErrorEvent: ({ event }) => {
+        if (abortedByUserRef.current || isAbortError(event.message)) setInterrupted(true);
+        else setError(event.message);
+      },
+      onRunFinishedEvent: () => {
+        setInterrupted(false);
+        callbacksRef.current.onRunFinished?.();
+      },
       onCustomEvent: ({ event }) => {
         callbacksRef.current.onCustomEvent?.(event.name, event.value);
         if (event.name === 'run_stats' && event.value && typeof event.value === 'object') {
@@ -269,26 +256,44 @@ export function useAgentStream({
     setRunStats(null);
     setIsRunning(true);
     setError(null);
+    setInterrupted(false);
+    abortedByUserRef.current = false;
 
     const params: RunAgentParameters = {};
     if (forwardedPropsRef.current) params.forwardedProps = forwardedPropsRef.current;
 
     agent
       .runAgent(params)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to run agent.'))
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Failed to run agent.';
+        if (abortedByUserRef.current || isAbortError(msg)) setInterrupted(true);
+        else setError(msg);
+      })
       .finally(() => setIsRunning(false));
   }
 
   function stop() {
     if (!isRunning) return;
+    abortedByUserRef.current = true;
+    // Aborting the SSE disconnects the server run — the backend folds the
+    // partial assistant turn into the checkpoint on cancel.
     agent?.abortRun();
     setIsRunning(false);
+    setInterrupted(true);
     if (interruptUrl) {
-      // Fire-and-forget: the server cancels the in-sandbox turn; any late SSE
-      // events are ignored since the local run is already aborted.
       void fetch(interruptUrl, { method: 'POST' }).catch(() => undefined);
     }
   }
 
-  return { messages, trace, reasoningByMessageId, runStats, isRunning, error, sendMessage, stop };
+  return {
+    messages,
+    trace,
+    reasoningByMessageId,
+    runStats,
+    isRunning,
+    error,
+    interrupted,
+    sendMessage,
+    stop,
+  };
 }

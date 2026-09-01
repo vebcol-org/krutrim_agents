@@ -24,9 +24,8 @@ class RunLogger:
         self._thread_id = thread_id
         self._lock = threading.Lock()
         # `path` overrides the default `runs_dir/<agent_key>/<thread>.jsonl`
-        # layout — the in-sandbox runtime points it straight at
-        # `out/runs/<thread>.jsonl` so `Storage.import_scope`'s flat
-        # `out/runs/*.jsonl` glob folds it back into the session dir.
+        # layout (used by tests, and available for pointing a run's transcript
+        # anywhere else).
         if path is not None:
             self._path = Path(path)
             self._path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,7 @@
 [project]
 name = "krutrim-agent-agui"
 version = "0.1.0"
-description = "In-tree LangGraph -> AG-UI event-stream translator and its plugin surface, shared by the FastAPI service and the in-sandbox gRPC runtime."
+description = "In-tree LangGraph -> AG-UI event-stream translator and its plugin surface, used by the FastAPI service."
 requires-python = ">=3.11"
 dependencies = [
     "ag-ui-protocol>=0.1.19",

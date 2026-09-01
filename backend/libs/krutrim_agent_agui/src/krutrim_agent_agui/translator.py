@@ -24,6 +24,8 @@ Scope vs. the package it replaces:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -50,7 +52,7 @@ from ag_ui.core import (
     ToolCallResultEvent,
     ToolCallStartEvent,
 )
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from loguru import logger
 
 from krutrim_agent_agui.plugins import AguiPlugin, AguiRunContext
@@ -84,6 +86,51 @@ def _frontend_tools(input_data: RunAgentInput) -> list[dict[str, Any]]:
     return [t.model_dump() for t in (input_data.tools or [])]
 
 
+_CONTINUATION_HINT = (
+    "Your previous response was cut off mid-generation (the user interrupted it). "
+    "If this message asks you to continue or resume, pick up exactly where that "
+    "response stopped instead of restarting; otherwise just answer normally."
+)
+
+
+async def _persist_partial_turn(
+    graph: CompiledStateGraph, config: dict[str, Any], partial_text: str
+) -> None:
+    """Append the partially-streamed assistant text to the session checkpoint
+    when a run is cancelled mid-node. Marked `interrupted` in `additional_kwargs`
+    so the *next* run can add a continuation hint (see `_continuation_hint`).
+    Best-effort: shielded from the in-flight cancellation, failures are logged."""
+    if not partial_text.strip():
+        return
+    message = AIMessage(content=partial_text, additional_kwargs={"interrupted": True})
+    task = asyncio.ensure_future(graph.aupdate_state(config, {"messages": [message]}))
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        with contextlib.suppress(Exception):
+            await task  # the shielded task keeps running — let it finish
+    except Exception:  # noqa: BLE001 - never mask the original cancellation
+        logger.exception("agui: failed to persist partial turn")
+
+
+async def _continuation_hint(
+    graph: CompiledStateGraph, config: dict[str, Any]
+) -> list[SystemMessage]:
+    """A one-off `SystemMessage` for this turn only when the last stored turn
+    was an interrupted assistant message. It IS checkpointed (system messages
+    are hidden from the chat UI by `to_display_messages`), but only lands once
+    per interrupt since a completed reply clears the `interrupted` marker."""
+    try:
+        snapshot = await graph.aget_state(config)
+    except Exception:  # noqa: BLE001 - no checkpoint yet / read failure -> no hint
+        return []
+    messages = (getattr(snapshot, "values", None) or {}).get("messages") or []
+    last = messages[-1] if messages else None
+    if isinstance(last, AIMessage) and (last.additional_kwargs or {}).get("interrupted"):
+        return [SystemMessage(content=_CONTINUATION_HINT)]
+    return []
+
+
 async def _run_hook(plugin: AguiPlugin, hook: str, ctx: AguiRunContext) -> list[BaseEvent]:
     """Iterate one plugin lifecycle hook to completion, swallowing any failure."""
     try:
@@ -104,6 +151,9 @@ class _RunEmitter:
         self.tool_started: set[str] = set()
         self.tool_ended: set[str] = set()
         self.last_tool_id: str | None = None
+        # Raw assistant text as produced — persisted verbatim if the run is
+        # cancelled before the node commits its own message.
+        self.assistant_full = ""
 
     async def emit(self, event: BaseEvent) -> AsyncIterator[BaseEvent]:
         """Yield one core event, then whatever each plugin's `on_event` adds."""
@@ -161,6 +211,14 @@ class _RunEmitter:
                 yield event
         self.last_tool_id = None
 
+    async def emit_text(self, chunk_id: str | None, delta: str) -> AsyncIterator[BaseEvent]:
+        async for event in self.open_text(chunk_id):
+            yield event
+        async for event in self.emit(
+            TextMessageContentEvent(type=EventType.TEXT_MESSAGE_CONTENT, message_id=self.text_id, delta=delta)
+        ):
+            yield event
+
     async def handle_ai_chunk(self, chunk: AIMessage) -> AsyncIterator[BaseEvent]:
         reasoning_delta = resolve_reasoning_delta(chunk)
         text_delta = resolve_text_delta(chunk)
@@ -182,13 +240,8 @@ class _RunEmitter:
                 yield event
 
         if text_delta:
-            async for event in self.open_text(chunk_id):
-                yield event
-            async for event in self.emit(
-                TextMessageContentEvent(
-                    type=EventType.TEXT_MESSAGE_CONTENT, message_id=self.text_id, delta=text_delta
-                )
-            ):
+            self.assistant_full += text_delta
+            async for event in self.emit_text(chunk_id, text_delta):
                 yield event
 
         for tool_call in tool_call_chunks:
@@ -271,8 +324,9 @@ async def run_graph_as_agui(
         "configurable": {"thread_id": thread_id},
         "recursion_limit": _recursion_limit(),
     }
+    hint = await _continuation_hint(graph, config)
     graph_input = {
-        "messages": [HumanMessage(content=_last_user_text(input_data))],
+        "messages": [*hint, HumanMessage(content=_last_user_text(input_data))],
         "tools": _frontend_tools(input_data),
     }
 
@@ -313,6 +367,14 @@ async def run_graph_as_agui(
                         StepFinishedEvent(type=EventType.STEP_FINISHED, step_name=step_name)
                     ):
                         yield event
+    except asyncio.CancelledError:
+        # Client hit Stop / the SSE connection dropped. The interrupted node
+        # never committed its assistant message, so fold whatever streamed so
+        # far into the checkpoint — reload then shows the partial turn. No
+        # events are yielded here (the consumer is already gone).
+        logger.info("agui: run {} cancelled — persisting partial turn", run_id)
+        await _persist_partial_turn(graph, config, emitter.assistant_full)
+        raise
     except Exception as exc:  # noqa: BLE001 - convert any run failure into a protocol event
         logger.exception("agui: run {} failed mid-stream", run_id)
         async for event in emitter.close_open():

@@ -19,8 +19,7 @@ paths use identical chunking and, critically, the SAME embedding model. A
 session's FAISS index holds vectors from whichever path(s) wrote to it; two
 different embedding models in one index would silently corrupt retrieval
 (cosine/L2 distances stop meaning anything across models), so this task's
-default embedder is OpenRouter (`krutrim_agent_rag.embeddings_provider`), not
-the local-only Ollama default it used before.
+default embedder is OpenRouter (`krutrim_agent_rag.embeddings_provider`)
 """
 
 from __future__ import annotations

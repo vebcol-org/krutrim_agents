@@ -1,17 +1,17 @@
-"""`RunLoggingMiddleware` — the in-graph half of the per-run audit trail.
+"""`RunLoggingMiddleware` — the in-graph half of the per-run eval trace.
 
-`HostBridge` (in `krutrim_agent_grpc`) already logs every LLM completion and
-host-side tool call the sandboxed agent makes *from the outside* — model, token
-usage, latency, tool args/results. This middleware logs the same events *from
-inside the graph*, so the transcript also covers calls that never leave the
-container (frontend tools, structured-output helper calls, retries a wrapping
-middleware absorbs) and carries the LangGraph tool-call ids that tie a request
-to its result.
+Logs one `model_request`/`model_response` pair per model call and one
+`tool_request`/`tool_response` pair per tool call (network tools included —
+`web_search` / `fetch_url` / `rag_tool` flow through `wrap_tool_call` like any
+other) to the per-run JSONL transcript (`RunLogger`), carrying the LangGraph
+tool-call ids that tie a request to its result.
 
-Attached via `build_agent(..., extra_middleware=[...])`. The in-sandbox runtime
-(`krutrim_agent_grpc.server.graph_runner`) always attaches one, pointed at
-`out/runs/<thread>.jsonl`; the in-process path attaches one pointed at the
-host's `runs_dir`.
+When `settings.eval_record_full_payloads` is on, the records also carry the
+full tool-call arguments and a truncated preview of every tool/model result —
+otherwise just their shapes. `RecordingFilesystemBackend` adds `fs_op` lines
+to the same transcript from one layer below.
+
+Attached via `build_agent(..., extra_middleware=[...])`.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from krutrim_agent_management.config import settings
 from langchain.agents.middleware import AgentMiddleware
 
 if TYPE_CHECKING:
@@ -67,6 +68,15 @@ class RunLoggingMiddleware(AgentMiddleware):
         except Exception:  # noqa: BLE001, S110 - the transcript is best-effort
             pass
 
+    @staticmethod
+    def _preview(text: str | None) -> str | None:
+        """A truncated copy of `text` for the eval transcript, or None when
+        full-payload capture is off."""
+        if not settings.eval_record_full_payloads or text is None:
+            return None
+        cap = settings.eval_record_payload_max_chars
+        return text if len(text) <= cap else text[:cap] + "…[truncated]"
+
     # -- model calls --------------------------------------------------
 
     def _log_model_request(self, request: ModelRequest) -> None:
@@ -89,11 +99,13 @@ class RunLoggingMiddleware(AgentMiddleware):
         last = result[-1] if result else None
         tool_calls = [c.get("name") for c in getattr(last, "tool_calls", None) or []]
         usage = getattr(last, "usage_metadata", None)
+        text = _message_text(last) if last is not None else ""
         self._safe_log(
             "model_response",
             {
                 "source": "agent_graph",
-                "chars": len(_message_text(last)) if last is not None else 0,
+                "chars": len(text),
+                "text_preview": self._preview(text),
                 "tool_calls": tool_calls,
                 "usage": dict(usage) if usage else None,
                 "latency_ms": latency_ms,
@@ -152,6 +164,9 @@ class RunLoggingMiddleware(AgentMiddleware):
                 "tool": call.get("name"),
                 "tool_call_id": call.get("id"),
                 "chars": len(content) if isinstance(content, str) else None,
+                "result_preview": self._preview(
+                    content if isinstance(content, str) else None
+                ),
                 "status": getattr(result, "status", None),
                 "latency_ms": latency_ms,
             },

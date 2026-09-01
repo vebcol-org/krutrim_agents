@@ -9,7 +9,7 @@ specific profile.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -19,12 +19,16 @@ if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
 
     from krutrim_agents_core.builder import DeepAgentContext
-    from krutrim_agents_core.providers.store import ProviderStore
+    from krutrim_agents_core.providers.base import ModelSettings
 
 
 @dataclass(frozen=True)
 class RoleDefaults:
-    """A profile's default provider/model choice for one role — seeds `ProviderStore`."""
+    """A profile's default provider/model choice for one role.
+
+    The code-declared floor the resolver falls back to when neither the agent
+    instance nor the session has overridden this role (see
+    `krutrim_agents_core.providers.resolver`)."""
 
     provider: str
     model: str
@@ -50,9 +54,9 @@ class AgentProfile:
     skills_sources: Sequence[str]
     memory_sources: Sequence[str] = ()
     tools_factory: Callable[[], list[BaseTool]] | None = None
-    subagents_factory: Callable[[ProviderStore], list[SubAgent]] | None = field(
-        default=None
-    )
+    subagents_factory: (
+        Callable[[Mapping[str, ModelSettings]], list[SubAgent]] | None
+    ) = field(default=None)
     graph_pattern: Callable[[DeepAgentContext], CompiledStateGraph] | None = field(
         default=None
     )
@@ -75,5 +79,7 @@ class AgentProfile:
     def tools(self) -> list[BaseTool]:
         return self.tools_factory() if self.tools_factory else []
 
-    def subagents(self, store: ProviderStore) -> list[SubAgent]:
-        return self.subagents_factory(store) if self.subagents_factory else []
+    def subagents(self, models: Mapping[str, ModelSettings]) -> list[SubAgent]:
+        """`models` is the resolved `{role: ModelSettings}` map from
+        `krutrim_agents_core.providers.resolver.resolve_models`."""
+        return self.subagents_factory(models) if self.subagents_factory else []

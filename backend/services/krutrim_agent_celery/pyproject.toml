@@ -1,7 +1,7 @@
 [project]
 name = "krutrim-agent-celery"
 version = "0.1.0"
-description = "Celery app + the idle-container reaper task, running against the same sandbox/storage libraries the FastAPI backend uses."
+description = "Celery app + RAG ingestion / embedding-precompute tasks, running against the same storage libraries the FastAPI backend uses."
 requires-python = ">=3.11"
 dependencies = [
     "celery[redis]>=5.6.3",

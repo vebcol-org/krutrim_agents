@@ -13,14 +13,35 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class ToolCallView(BaseModel):
+    """One tool invocation from an assistant turn, reconstructed from the
+    checkpoint so a reloaded conversation can redraw the work-log panel."""
+
+    id: str
+    name: str
+    args: str
+    """The call arguments, JSON-encoded (sorted keys)."""
+    result: str | None = None
+    """The tool's output — `None` if the call never returned (run cut off)."""
+
+
 class ChatApiMessage(BaseModel):
     """One turn's worth of chat history — matches `shared-types.ts`'s
-    `ChatApiMessage` and `chat/messages.py::from_lc_messages`'s output
-    exactly. `GET /api/sessions/{id}/messages` returns a list of these;
-    `POST /api/chat` streams the live turn as AG-UI events instead."""
+    `ChatApiMessage`. `GET /api/sessions/{id}/messages` returns a list of
+    these; `POST /api/chat` streams the live turn as AG-UI events instead.
+
+    The route serializes with ``response_model_exclude_defaults=True``, so a
+    plain text turn is just ``{role, content}`` and the extra fields appear
+    only when they carry something."""
 
     role: Literal["user", "assistant"]
     content: str
+    interrupted: bool = False
+    """`True` only for an assistant turn that was stopped mid-generation — the
+    frontend shows its text as a work-log entry, not a finished report."""
+    tool_calls: list[ToolCallView] = []
+    """Tools this assistant turn invoked, with their results folded in — lets a
+    reload rebuild the activity trace the live stream showed."""
 
 
 class ErrorResponse(BaseModel):

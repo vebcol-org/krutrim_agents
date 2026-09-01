@@ -13,8 +13,8 @@
 /*
   Tailwind's automatic content detection is scoped to each app's Vite root
   (apps/web, apps/desktop) and never walks sideways into sibling `libs/*`
-  packages — so classNames used in libs/agent-ui, libs/agent-renderers, and
-  this package itself would otherwise be silently dropped from the compiled
+  packages — so classNames used in libs/agent-ui and this package itself
+  would otherwise be silently dropped from the compiled
   CSS. Paths below are resolved relative to this file (libs/ui/src/theme.css)
   and only resolve for IN-REPO consumers (apps/web, apps/desktop). An
   external package consumer (installing this package from node_modules
@@ -25,7 +25,6 @@
 */
 @source './**/*.{ts,tsx}';
 @source '../../agent-ui/src/**/*.{ts,tsx}';
-@source '../../agent-renderers/src/**/*.{ts,tsx}';
 
 @theme {
   --color-background: #0b0e11;

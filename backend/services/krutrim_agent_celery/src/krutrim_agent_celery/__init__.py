@@ -1,8 +1,9 @@
-"""Background/scheduled work for the sandbox lifecycle — today, just the
-idle-container reaper (`tasks/reap_idle_containers.py`). Its own deployable
-package within the `backend/` uv workspace (see `services/krutrim_agent_celery/pyproject.toml`),
-depending on `krutrim_agent_management`/`krutrim_agent_sandbox` as libraries. Run a worker
-with:
+"""Background/scheduled work — today the RAG document ingestion
+(`tasks/process_rag_document.py`) and embedding precompute
+(`tasks/precompute_embeddings.py`) tasks. Its own deployable package within
+the `backend/` uv workspace (see `services/krutrim_agent_celery/pyproject.toml`),
+depending on `krutrim_agent_management`/`krutrim_agent_rag` as libraries. Run a
+worker with:
 
     uv run krutrim-agent-worker
     # or, equivalently:
