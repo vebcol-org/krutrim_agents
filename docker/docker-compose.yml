@@ -89,7 +89,7 @@ services:
       # via env_file above. See .env.example.
       OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
-      TAVILY_SEARCH_API_BASE: ${TAVILY_SEARCH_API_BASE:+http://host.docker.internal:4100/}
+      TAVILY_SEARCH_API_BASE: ${TAVILY_SEARCH_API_BASE:+https://api.tavily.com}
       LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
     ports:
       - '8000:8000'

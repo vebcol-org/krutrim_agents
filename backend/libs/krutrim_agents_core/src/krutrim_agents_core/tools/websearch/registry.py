@@ -12,14 +12,12 @@ from typing import TYPE_CHECKING
 
 from krutrim_agent_management.config import settings
 
-from .duckduckgo import duckduckgo_search
 from .tavily import tavily_search
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 SEARCH_PROVIDERS: dict[str, "BaseTool"] = {
-    "duckduckgo": duckduckgo_search,
     "tavily": tavily_search,
 }
 
@@ -32,4 +30,4 @@ def get_web_search_tool(provider: str | None = None) -> "BaseTool":
     not break every profile's tool list at import time.
     """
     key = provider or settings.web_search_provider
-    return SEARCH_PROVIDERS.get(key, duckduckgo_search)
+    return SEARCH_PROVIDERS.get(key, tavily_search)

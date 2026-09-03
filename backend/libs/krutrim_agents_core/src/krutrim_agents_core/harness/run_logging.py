@@ -2,7 +2,7 @@
 
 Logs one `model_request`/`model_response` pair per model call and one
 `tool_request`/`tool_response` pair per tool call (network tools included —
-`web_search` / `fetch_url` / `rag_tool` flow through `wrap_tool_call` like any
+`web_search` / `web_fetch` / `rag_tool` flow through `wrap_tool_call` like any
 other) to the per-run JSONL transcript (`RunLogger`), carrying the LangGraph
 tool-call ids that tie a request to its result.
 

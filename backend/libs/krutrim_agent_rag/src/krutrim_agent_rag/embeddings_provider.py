@@ -28,6 +28,7 @@ def default_embed(texts: list[str]) -> np.ndarray:
         model=settings.rag_embedding_model,
         api_key=os.environ["OPENROUTER_API_KEY"],
         base_url=os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1",
+        check_embedding_ctx_length=False,
     )
     logger.debug(
         "rag.embed: embedding {} text(s) with model {}",

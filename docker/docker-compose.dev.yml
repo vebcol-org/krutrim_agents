@@ -72,7 +72,7 @@ services:
       args:
         TORCH_BACKEND: ${TORCH_BACKEND:-cpu}
     env_file:
-      - path: ../.env.dev
+      - path: ../.env
         required: false
     environment:
       KRUTRIM_AGENT_REDIS_URL: redis://${REDIS_PASSWORD:+$REDIS_USER:$REDIS_PASSWORD@}redis:6379/0
@@ -82,7 +82,7 @@ services:
       KRUTRIM_AGENT_DEV_MODE: 'true'
       OPENROUTER_API_KEY: ${LITELLM_MASTER_KEY:-${OPENROUTER_API_KEY:-NO_API_KEY}}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:+http://host.docker.internal:4000/}
-      TAVILY_SEARCH_API_BASE: ${TAVILY_SEARCH_API_BASE:+http://host.docker.internal:4100/}
+      TAVILY_SEARCH_API_BASE: ${TAVILY_SEARCH_API_BASE:-https://api.tavily.com}
       LANGFUSE_BASE_URL: ${LANGFUSE_DOCKER_BASE_URL:-${LANGFUSE_BASE_URL:+http://host.docker.internal:3000}}
       # Set true on macOS/Windows if --reload stops noticing edits (bind-mount
       # inotify events don't cross the Docker VM boundary there).

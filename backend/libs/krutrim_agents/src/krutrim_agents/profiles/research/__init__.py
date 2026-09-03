@@ -15,27 +15,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from deepagents.middleware.subagents import SubAgent
 from krutrim_agent_management.config import settings
 from krutrim_agent_rag.middleware import RagInjectionMiddleware
 from krutrim_agent_rag.tool import rag_tool
 from krutrim_agents_core.context_management import build_context_management_middleware
-from krutrim_agents_core.harness.prompts import load_prompt
 from krutrim_agents_core.profile import AgentProfile, RoleDefaults
-from krutrim_agents_core.providers.registry import build_chat_model
 from krutrim_agents_core.registry import register_profile
-from krutrim_agents_core.tools import fetch_url, web_search
+from krutrim_agents_core.tools import web_fetch, web_search
 
 from .agent import create_research_agent
 from .prompts import render_system_prompt
 from .reply_cleanup import ResearchReplyCleanupMiddleware
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from deepagents.backends.protocol import BackendProtocol
     from krutrim_agents_core.builder import DeepAgentContext
-    from krutrim_agents_core.providers.base import ModelSettings
     from langchain_core.messages import AnyMessage
     from langchain_core.tools import BaseTool
     from langgraph.graph.state import CompiledStateGraph
@@ -59,38 +55,9 @@ _RECENT_MESSAGE_WINDOW = 8
 
 
 def _tools() -> list[BaseTool]:
-    return [web_search, fetch_url, rag_tool]
+    return [web_search, web_fetch, rag_tool]
 
 
-def _subagents(models: Mapping[str, ModelSettings]) -> list[SubAgent]:
-    researcher: SubAgent = {
-        "name": "researcher",
-        "description": (
-            "Gathers and verifies facts via web search. Delegate to this whenever you need "
-            "current information you don't already have."
-        ),
-        "system_prompt": load_prompt(KEY, "researcher"),
-        "tools": [web_search, fetch_url],
-        "model": build_chat_model(models["researcher"]),
-    }
-    critic: SubAgent = {
-        "name": "critic",
-        "description": (
-            "Reviews a draft report or research notes for unsupported claims, one-sidedness, "
-            "and gaps. Delegate to this before finalizing any non-trivial report."
-        ),
-        "system_prompt": load_prompt(KEY, "critic"),
-        "tools": [],
-        "model": build_chat_model(models["critic"]),
-    }
-    writer: SubAgent = {
-        "name": "writer",
-        "description": "Turns research notes and critique feedback into the final structured report.",
-        "system_prompt": load_prompt(KEY, "writer"),
-        "tools": [],
-        "model": build_chat_model(models["writer"]),
-    }
-    return [researcher, critic, writer]
 
 
 def _message_text(message: AnyMessage) -> str:
@@ -220,32 +187,14 @@ register_profile(
         key=KEY,
         display_name="Research Agent",
         description="General-purpose research: gathers, critiques, and reports on any topic.",
-        roles=("main", "researcher", "critic", "writer"),
+        roles=("main",),
         default_models={
             "main": RoleDefaults(
                 provider="openrouter",
                 model=settings.default_model,
                 temperature=0.3,
                 max_tokens=32_768,
-            ),
-            "researcher":  RoleDefaults(
-                provider="openrouter",
-                model=settings.default_model,
-                temperature=0.3,
-                max_tokens=32_768,
-            ),
-            "critic":  RoleDefaults(
-                provider="openrouter",
-                model=settings.default_model,
-                temperature=0.3,
-                max_tokens=32_768,
-            ),
-            "writer":  RoleDefaults(
-                provider="openrouter",
-                model=settings.default_model,
-                temperature=0.3,
-                max_tokens=32_768,
-            ),
+            )
         },
         # Static fallback/doc string only — build_agent() calls graph_pattern
         # (set below), which uses agent.py's system_prompt_fn to render the
@@ -258,7 +207,7 @@ register_profile(
         skills_sources=["/skills/common/", f"/skills/{KEY}/"],
         memory_sources=["/memory/AGENTS.md"],
         tools_factory=_tools,
-        subagents_factory=_subagents,
+        subagents_factory=[],
         graph_pattern=_graph_pattern,
     )
 )

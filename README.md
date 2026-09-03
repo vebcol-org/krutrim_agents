@@ -1,159 +1,132 @@
 # Krutrim Agent
 
-A pluggable multi-agent-type platform: a LangGraph + [deepagents](https://docs.langchain.com/oss/python/deepagents/overview) backend (Python) hosting independent agent "profiles" (this pass ships `research`; more can be added without touching core code), talking directly to a pure-React frontend (web app and Tauri desktop app) over the AG-UI protocol via `@ag-ui/client`'s `HttpAgent` — no intermediary runtime process. Chat lives in a left pane; the agent's finished output renders in a right-hand canvas, using whichever agent type is selected via `?agent=<key>` in the URL.
+A pluggable, multi-agent-type platform. A LangGraph + [deepagents](https://docs.langchain.com/oss/python/deepagents/overview) backend (Python) hosts independent agent **profiles** — this build's is `research` — and streams to a pure-React frontend (web + Tauri desktop) over the AG-UI protocol via `@ag-ui/client`'s `HttpAgent`, with no runtime process in between. Chat sits in a left pane; the agent's finished deliverable renders in a right-hand canvas. `?agent=<key>` in the URL picks the agent.
 
-## The core/plugin split
+## Core / plugin split
 
-This is the central design decision — see `.architecture/` (design-decision notes, tracked in the repo) for the full writeup. Short version:
+The one load-bearing design decision. **Core** is never touched to add an agent: the FastAPI app, the provider system, the sandbox registry, the harness loaders, `krutrim_agents_core`'s `registry.py` (auto-discovery) and `builder.py` (generic graph assembly), `libs/ui`, and the `agent-ui` frame (`components/{shell,thread,panels,sheets}/`, `api/`, `hooks/`, `store/`).
 
-- **Core** (never touched when adding an agent): the FastAPI app, the providers system, the Docker sandbox, the harness loaders, `krutrim_agents_core/registry.py` (auto-discovery), `krutrim_agents_core/builder.py` (generic graph assembly), the shared primitives in `libs/ui`, and the entire frontend shell in `libs/agent-ui` (chat panel, settings panel, URL parsing, canvas shell, the `@ag-ui/client` wiring in `agent-client.ts`).
-- **Plugin surface** (what you touch to add a new agent type):
-  - Backend: one new folder `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/__init__.py` (declares an `AgentProfile` — prompts, tools, subagents, default models — and self-registers) plus its harness content folders. **Zero edits to existing files** — `registry.py` scans each configured profile-source package's filesystem path at import time.
-  - Frontend: one new folder `libs/agent-ui/src/screens/<key>/` exporting an `AgentScreenModule` (a `Center` pane, plus an optional `OutputRenderer` and `turnSplitter`) plus **one line** in `libs/agent-ui/src/screens/registry.ts`. The rest of `libs/agent-ui` — the `components/{shell,thread,panels,sheets}/` frame — stays untouched; it only ever calls `getScreen(key)`, falling back to the `default` screen (shared agent thread + built-in markdown/chart/news renderer) when a key isn't registered.
+**Adding an agent type** touches only:
 
-## Reusable packages — consuming this repo from another codebase
+- **Backend** — one folder `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/` declaring an `AgentProfile` (prompts, tools, subagents, default models) that self-registers, plus its `harness/{prompts,skills,memory}/<key>/` content. Zero edits to existing files — `registry.py` scans each configured profile package's filesystem path at import.
+- **Frontend** — optional: one folder `libs/agent-ui/src/screens/<key>/` exporting an `AgentScreenModule` plus one line in `screens/registry.ts`. Omit it and the `default` screen (shared thread + built-in markdown/chart renderer) is used.
 
-Every backend lib and every reusable frontend lib (never a page/app) is an independently installable package, meant for a separate private repo  to depend on directly — no publishing infrastructure required to start.
+## Features
 
-**Backend** (`backend/libs/*`, each a real `uv` workspace package): `krutrim_agent_utils`, `krutrim_agent_management`, `krutrim_agent_sandbox`, `krutrim_agents_core`, `krutrim_agents`, `krutrim_agent_celery_core`, `krutrim_agent_extensions`. A consuming repo's own `pyproject.toml` points straight at a subfolder of this repo:
+### Research agent
 
-```toml
-[tool.uv.sources]
-krutrim-agents-core = { git = "https://github.com/<org>/krutrim_community", subdirectory = "backend/libs/krutrim_agents_core" }
-```
+`main` orchestrator + `researcher` / `critic` / `writer` subagents, each independently model-configurable.
 
-**Frontend** (`libs/*`, each a real npm package under the `@krutrim_agent/` scope): `@krutrim_agent/ui`, `@krutrim_agent/shared-types`, `@krutrim_agent/agent-ui` (the whole `<Agent>` frontend, including the per-agent `screens/`), `@krutrim_agent/extensions` (`tauri-utils` stays unpackaged — desktop/Tauri-only). Each has its own `package.json`/`vite.config.mts` producing a real `dist/` (ESM + `.d.ts`); `pnpm nx build <lib>` builds one, `pnpm run build` builds everything. A consuming repo's `package.json` points at a subfolder via pnpm's git-subdirectory support:
+| Feature | Status | Notes |
+| --- | --- | --- |
+| Web research | Completed | `web_search` (Tavily) + `web_fetch` |
+| RAG over session documents | Completed | `rag_tool`, per-session vector store |
+| RAG silent-injection mode | Completed | Off by default |
+| Subagent delegation | Completed | `researcher` / `critic` / `writer` |
+| Filesystem workspace | Completed | `ls` / `read` / `write` / `edit` / `glob` / `grep` |
+| Live scratchpad + per-turn dynamic system prompt | Completed | |
+| Clarification protocol | Completed | Asks before diving in on an ambiguous request |
+| Skills + per-agent memory | Completed | Loaded from `harness/` |
+| Context management (`trim` / `summarize`) | Completed | Off by default |
+| Run-transcript recording | Completed | For eval / replay |
 
-```json
-"dependencies": {
-  "@krutrim_agent/agent-ui": "github:<org>/krutrim_community#path:libs/agent-ui"
-}
-```
+### Platform
 
-Because `agent-ui` depends on its sibling `@krutrim_agent/*` packages too, add a `pnpm.overrides` block redirecting those to the same git subfolder (there's no registry resolving `@krutrim_agent/*` by version yet):
-
-```json
-"pnpm": {
-  "overrides": {
-    "@krutrim_agent/ui": "github:<org>/krutrim_community#path:libs/ui",
-    "@krutrim_agent/shared-types": "github:<org>/krutrim_community#path:libs/shared-types",
-    "@krutrim_agent/extensions": "github:<org>/krutrim_community#path:libs/extensions"
-  }
-}
-```
-
-Publishing to a private registry (GitHub Packages / a private PyPI index) removes the need for overrides entirely — a pure upgrade later, not a redesign.
-
-**Tailwind**: `@krutrim_agent/ui`'s `theme.css` ships as raw, unprocessed source (`import "@krutrim_agent/ui/theme.css"` in your own entry CSS) — Tailwind compilation always happens in the *consuming* app, never inside these libraries. Since Tailwind's content-detection never walks into `node_modules`, add your own scan target pointing at the installed packages' built JS:
-
-```css
-@import 'tailwindcss';
-@import '@krutrim_agent/ui/theme.css';
-@source '../node_modules/@krutrim_agent/*/dist/**/*.js';
-```
-
-**Extending securely**: `krutrim_agent_extensions` (backend) and `@krutrim_agent/extensions` (frontend) are the seam for everything edition-specific — auth, agent-profile visibility, audit logging. Community ships all-no-op hooks on both sides; a consuming app registers real ones (backend: `settings.extension_sources`; frontend: `<Agent extensions={{ authProvider, visibilityFilter }}>`) without forking anything else. `GET /api/system/extensions` plus the frontend's `<ExtensionSelfCheck backendUrl={...}>` catch drift between what each side thinks is configured — see `backend/docs/libs/krutrim_agent_extensions.md`.
+| Feature | Status | Notes |
+| --- | --- | --- |
+| LLM provider: OpenRouter | Completed | |
+| LLM provider: others | Not built | Provider registry supports it |
+| Web search: Tavily | Completed | |
+| Web search: other providers | Not built | |
+| RAG vector store: faisslite / Qdrant | Completed | faisslite is the default (embedded) |
+| RAG retrieval: `vector_only` | Completed | |
+| RAG retrieval: hybrid / BM25 / rerank | Not built | |
+| Document parsing: text / markdown / PDF / DOCX | Completed | PDF / DOCX via docling |
+| Async RAG ingestion | Completed | Celery worker |
+| Frontend: web + Tauri desktop | Completed | One React renderer |
+| Plain non-agentic chat screen | Completed | `/api/chat` |
+| Live provider / model settings | Partial | Change needs a backend restart |
+| Sandbox: per-session filesystem workspace | Completed | |
+| Sandbox: container / network / resource isolation | Not built | Current backend is a placeholder |
+| Domain tools (market data, quotes / OHLCV, …) | Not built | |
+| `shared-types` codegen from Pydantic models | Not built | Hand-synced |
+| Desktop: auto-spawn backend + real app icon | Not built | |
+| Dataset-driven eval runner | Not built | Transcript recording only |
+| More agent profiles (trading / sales) | Not built | |
+| Coding / PR-drafting agent | Not built | Deliberate — needs a privileged sandbox + human-approval gate |
 
 ## Prerequisites
 
 - Node 20+, [pnpm](https://pnpm.io) 10+
-- Python via [uv](https://docs.astral.sh/uv/) (`brew install uv`) — uv manages its own Python 3.11, your system Python doesn't matter
-- Docker Desktop (or another Docker daemon) running — required for the agent sandboxes
-- Only if you're running the desktop app: a Rust toolchain (`rustup`/`cargo`) plus Tauri's [platform-specific system dependencies](https://v2.tauri.app/start/prerequisites/) (e.g. WebKitGTK on Linux). Not needed for the web app.
+- Python via [uv](https://docs.astral.sh/uv/) (`brew install uv`) — uv manages its own Python 3.11; your system Python doesn't matter
+- An `OPENROUTER_API_KEY` (LLM + RAG embeddings) and a `TAVILY_API_KEY` (web search)
+- Optional: Docker — only for the full `docker/` compose stack, or a standalone Redis (Celery / RAG ingestion) or Qdrant
+- Desktop app only: a Rust toolchain (`rustup`/`cargo`) plus Tauri's [system dependencies](https://v2.tauri.app/start/prerequisites/)
 
 ## Setup
 
 ```bash
 pnpm install
-
-cp .env.example .env   # then fill in OPENROUTER_API_KEY — one shared file, see below
-
-cd backend
-uv sync
-docker build -f ../docker/sandbox.Dockerfile -t krutrim_agent-sandbox:latest .
-cd ..
+cp .env.example .env      # fill in OPENROUTER_API_KEY and TAVILY_API_KEY
+cd backend && uv sync && cd ..
 ```
 
-`backend/` is a `uv` workspace, not a single package: `libs/{krutrim_agent_management,krutrim_agent_sandbox,krutrim_agents}` (importable libraries) and `services/{krutrim_agent_backend,krutrim_agent_celery}` (the FastAPI app and the idle-container-reaper worker), sharing one venv. `uv sync`/`uv run` from `backend/` operate on the whole workspace.
-
-There's one real env file, at the repo root. `backend/.env` and `apps/web/.env.local` are committed symlinks pointing at it (so is `docker/.env`, for the containerized setup — see `docker/README.md`) — edit values in the root `.env` only, every tool reads the same file through its own symlink.
+`backend/` is one `uv` workspace — the libs, the FastAPI service, and the Celery worker share a single venv; run `uv run` from `backend/`. There's one real `.env` at the repo root; `backend/.env`, `apps/web/.env.local`, and `docker/.env` are committed symlinks to it — edit the root file only.
 
 ## Running it
 
-The frontend talks straight to the backend over AG-UI (HTTP/SSE), no runtime hop in between. A Redis instance (`docker compose -f docker/docker-compose.yml up redis`) and the Celery worker are only needed for the idle-container reaper — the app runs fine without them, just without automatic sandbox teardown.
-
 ```bash
-# 1. Backend (FastAPI)
+# Backend (FastAPI) — the frontend talks to it directly over AG-UI, no runtime hop
 cd backend && uv run uvicorn krutrim_agent_backend.main:app --reload --port 8000
 
-# 1b. Optional: idle-container reaper worker (needs Redis running)
-cd backend && uv run celery -A krutrim_agent_celery.app worker --beat --loglevel=info
+# Frontend — web
+pnpm run web                       # apps/web → http://localhost:4200
+# ...or desktop (needs the Rust toolchain)
+pnpm exec nx run desktop:serve     # runs `tauri dev`
 
-# 2a. Web
-pnpm run web          # apps/web, http://localhost:4200
-
-# 2b. ...or Desktop (requires the Rust toolchain — see Prerequisites)
-pnpm exec nx run desktop:serve   # runs `tauri dev`: starts the Vite renderer, opens a native window
+# Optional — RAG document ingestion + embedding precompute (needs Redis)
+docker compose -f docker/docker-compose.yml up redis
+cd backend && uv run krutrim-agent-worker
 ```
 
-Open `http://localhost:4200/?agent=research` — the URL picks which agent you're talking to; omitting `?agent=` defaults to `research`. The Settings (⚙) button in the chat header edits that agent's per-role provider/model config against `/api/providers/{agent}` — **changes take effect on the next backend restart**, there's no hot-reload of the compiled graphs in this v1.
-
-## Agent profiles shipped in this pass
-
-- **`research`** — general-purpose research: gathers, critiques, and reports on any topic. Roles: `main`, `researcher`, `critic`, `writer`.
-
-More profiles (e.g. trading, sales) are planned; the plugin architecture is designed so they drop in without touching core code — see "Adding a new agent type" below.
-
-## LLM providers
-
-Two providers ship out of the box, each with its own Pydantic settings class (`backend/libs/krutrim_agents_core/src/krutrim_agents_core/providers/`):
-
-- **OpenRouter** (`openrouter.py`) — needs `OPENROUTER_API_KEY`; model id is whatever OpenRouter calls it (e.g. `deepseek/deepseek-v4-flash-0731`, `openai/gpt-4.1-mini`).
-
-Settings are persisted per `(agent_key, role)` in `backend/harness/memory/settings.json` (gitignored), seeded from each profile's own `default_models` — the store itself has no per-agent knowledge and picks up a newly added profile's defaults automatically on the next backend start. Add a new provider by subclassing `ModelSettings`/`Provider` and registering it in `providers/registry.py` (this is core, shared by every agent).
-
-## The sandbox: "won't go beyond the rules"
-
-Every filesystem operation and shell command an agent runs happens inside a locked-down Docker container (`krutrim_agent_sandbox.docker_backend.DockerSandboxBackend`, subclassing deepagents' `BaseSandbox`) — **one container per session by default** (isolated), with opt-in explicit container reuse between sessions and a cross-agent messaging bridge between separate sessions' containers; see `sandbox/registry.py`'s `SandboxRegistry` and the idle-container reaper in `services/krutrim_agent_celery/`:
-
-- **No network** (`network_disabled=True`) — nothing to exfiltrate to or fetch from.
-- **Read-only rootfs** — only `/tmp` and `/workspace` are writable, and both are in-memory tmpfs (no host bind mount at all, so the sandbox has zero access to host files).
-- **Non-root, capabilities dropped, `no-new-privileges`.**
-- **Fixed resource limits** (memory/CPU/pids) and a **hard wall-clock timeout** per command, enforced via `timeout` inside the container.
-- The policy (`sandbox/policy.py`) is server-side config — the LLM-facing `execute` tool only ever takes a command string, so there's no code path for the model to loosen any of this.
-
-`backend/harness/skills/{common,<agent_key>}/` and `backend/harness/memory/<agent_key>/` are mounted read-only (`ReadOnlyFilesystemBackend`) alongside the sandbox via a `CompositeBackend`, scoped per agent — one agent profile can't read another's memory — and the agent can read its own harness content but never write to it, even though it has full read/write inside `/workspace`.
-
-## The harness
-
-- `harness/skills/common/*/SKILL.md` — skills shared by every agent (web research, sandboxed data analysis).
-- `harness/skills/<agent_key>/*/SKILL.md` — Claude-Code-style skill files specific to one agent, loaded by deepagents' `SkillsMiddleware`.
-- `harness/prompts/<agent_key>/*.md` — system prompts for that agent's main graph and each of its subagents, loaded by `krutrim_agents_core.harness.prompts.load_prompt(agent_key, name)`.
-- `harness/evals/datasets/<agent_key>.jsonl` + `evals/runner.py` — a standalone script (not part of `pytest`) that runs each task through that agent's real graph and checks required substrings. Needs real API access: `uv run python harness/evals/runner.py <agent_key>`.
-- `harness/memory/<agent_key>/AGENTS.md` — durable per-agent memory, loaded into that agent's system prompt. `harness/memory/runs/<agent_key>/` holds gitignored JSONL run transcripts (`krutrim_agents_core.harness.runs.RunLogger`); `harness/memory/settings.json` holds all agents' provider config (gitignored).
+Open `http://localhost:4200/?agent=research` (omitting `?agent=` lands on `home`). The whole stack also runs via `docker/docker-compose.yml` — see `docker/README.md`.
 
 ## Adding a new agent type
 
-1. `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/__init__.py` — define an `AgentProfile` and call `register_profile(...)`. Copy `research` (or the minimal `experiment`) as a starting point.
-2. `backend/harness/{skills,prompts,memory}/<key>/` — that profile's harness content (at minimum, `memory/<key>/AGENTS.md` and a prompt per declared role).
-3. `libs/agent-ui/src/screens/<key>/` (an `AgentScreenModule`) + one line in `libs/agent-ui/src/screens/registry.ts` — optional; omit it and the `default` screen (shared agent thread + built-in markdown/chart/news renderer) is used automatically.
-4. Restart the backend and the runtime. Visit `?agent=<key>`.
+1. `backend/libs/krutrim_agents/src/krutrim_agents/profiles/<key>/__init__.py` — define an `AgentProfile` and call `register_profile(...)`. Copy `research` as a starting point.
+2. `backend/harness/{prompts,skills,memory}/<key>/` — at minimum `memory/<key>/AGENTS.md` and a prompt per declared role.
+3. *(optional)* `libs/agent-ui/src/screens/<key>/` + one line in `screens/registry.ts` — skip it to use the `default` screen.
+4. Restart the backend. Visit `?agent=<key>`.
 
-Nothing else changes — no core file is edited for any of the above.
+No core file changes for any of the above.
 
 ## Testing
 
 ```bash
-cd backend && uv run pytest       # providers, sandbox (real Docker containers), agent registry, graph assembly for every profile
-pnpm run lint                     # frontend eslint
-pnpm run build                    # build every Nx project
+cd backend && uv run pytest    # providers, registry, graph assembly, AG-UI translator, chat, doc parsers, cross-agent
+pnpm run lint                  # frontend eslint
+pnpm run build                 # build every Nx project
 ```
 
-## Known limitations / not built (v1)
+## Consuming the packages elsewhere
 
-- No network-allowlist egress proxy for the sandbox — it ships network-disabled only.
-- The desktop app (`apps/desktop`, shell in `apps/desktop/src-tauri/`) doesn't auto-spawn the backend — it connects to a configurable URL (`VITE_BACKEND_URL`), same as the web app. `src-tauri/icons/icon.png` is a solid-color placeholder (just enough for `cargo check`/`tauri dev` to run) — regenerate a real icon set (`pnpm exec tauri icon <path-to-1024px-png>`) before running `nx run desktop:package` (`tauri build`) to produce an installable bundle.
-- `shared-types` is hand-synced against the backend's Pydantic models, not codegen'd.
-- Provider settings changes need a backend restart to take effect (no hot-reload of the compiled graphs).
-- Real market-data tools (quotes/OHLCV/indicators) aren't wired in — agents have `web_search`/`fetch_url` plus a sandboxed Python/pandas `execute` tool for now; add a dedicated skill + tool when you pick a data source.
-- A "coding"/PR-drafting agent type is a natural next profile but deliberately not built here — it needs real git/network/credential access and a human-approval gate before anything irreversible, which is a different (more privileged) sandbox than the one every other profile shares. See `.architecture/` for the design sketch.
+Every `backend/libs/*` (`uv` workspace package) and every reusable `libs/*` frontend package (`@krutrim_agent/` scope) is independently installable — a separate private repo can depend on a subfolder of this repo directly, no publishing infrastructure required:
+
+```toml
+# consuming pyproject.toml
+[tool.uv.sources]
+krutrim-agents-core = { git = "https://github.com/<org>/krutrim_community", subdirectory = "backend/libs/krutrim_agents_core" }
+```
+
+```json
+// consuming package.json — agent-ui pulls its @krutrim_agent/* siblings, so redirect those too
+"dependencies": { "@krutrim_agent/agent-ui": "github:<org>/krutrim_community#path:libs/agent-ui" },
+"pnpm": { "overrides": {
+  "@krutrim_agent/ui": "github:<org>/krutrim_community#path:libs/ui",
+  "@krutrim_agent/shared-types": "github:<org>/krutrim_community#path:libs/shared-types"
+}}
+```
+
+Tailwind compilation always happens in the consuming app: `import '@krutrim_agent/ui/theme.css'` in your entry CSS and add `@source '../node_modules/@krutrim_agent/*/dist/**/*.js';` so its content scan reaches the installed packages.
+
+`krutrim_agent_extensions` (backend) and `@krutrim_agent/extensions` (frontend) are the seam for edition-specific add-ons — auth, agent-profile visibility, audit logging. Community ships all-no-op hooks; a consuming app registers real ones via `settings.extension_sources` / `<Agent extensions={{ ... }}>` without forking anything else.

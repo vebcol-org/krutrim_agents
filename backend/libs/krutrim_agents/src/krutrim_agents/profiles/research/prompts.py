@@ -2,7 +2,7 @@
 under `harness/prompts/research/` via `promptstore.PromptRegistry`.
 
 The registry holds six always-on fragments (`core`, `control_flow`,
-`clarification`, `rag_protocol`, `tools_use`) plus one selectable topology
+`clarification`, `rag_protocol`) plus one selectable topology
 variant (`topology`, registered three times under different `scope`s:
 `react_agent` / `planner_executor` / `swarm_agent`). `render_with_children`
 renders each fragment in isolation and substitutes the result into the
@@ -84,10 +84,8 @@ def render_system_prompt(
                     "available_tools": _sanitize(available_tools),
                 }
             },
-            "control_flow": {},
             "clarification": {},
             "rag_protocol": {},
-            "tools_use": {},
             "topology": {},
         },
         scopes={"topology": topology},

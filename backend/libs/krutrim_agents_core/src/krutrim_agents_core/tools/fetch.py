@@ -11,7 +11,7 @@ FETCH_TIMEOUT_SECONDS = 15
 
 
 @tool
-async def fetch_url(url: str) -> str:
+async def web_fetch(url: str) -> str:
     """Fetch a web page and return its content as plain text/markdown.
 
     Use this to read a specific source in full after finding it via

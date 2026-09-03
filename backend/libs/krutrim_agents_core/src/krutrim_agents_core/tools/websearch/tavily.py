@@ -17,14 +17,13 @@ MAX_SEARCH_RESULTS = 6
 TAVILY_SEARCH_API_BASE = os.getenv("TAVILY_SEARCH_API_BASE") or "https://api.tavily.com"
 
 
-@tool
+@tool(name_or_callable="web_search")
 async def tavily_search(query: str) -> str:
     """Search the web (via Tavily) and return titles, URLs, and snippets for the top results.
 
-    Higher-quality, AI-oriented search results than `duckduckgo_search` —
-    requires the `TAVILY_API_KEY` environment variable to be set. Use a
+    Higher-quality, AI-oriented search results than `tavily search`. Use a
     focused query (specific terms, not a broad topic) rather than a vague
-    one. For anything load-bearing, follow up with `fetch_url` on the
+    one. For anything load-bearing, follow up with `web_fetch` on the
     specific source instead of relying on the snippet alone.
     """
     api_key = os.environ.get("TAVILY_API_KEY") or ""

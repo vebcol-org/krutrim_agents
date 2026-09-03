@@ -17,7 +17,7 @@ from krutrim_agent_management.config import settings
 from krutrim_agents_core.harness.prompts import load_prompt
 from krutrim_agents_core.profile import AgentProfile, RoleDefaults
 from krutrim_agents_core.registry import register_profile
-from krutrim_agents_core.tools import fetch_url, web_search
+from krutrim_agents_core.tools import web_fetch, web_search
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -26,7 +26,7 @@ KEY = "experiment"
 
 
 def _tools() -> list[BaseTool]:
-    return [web_search, fetch_url]
+    return [web_search, web_fetch]
 
 
 register_profile(

@@ -19,7 +19,7 @@ import { Markdown } from './markdown';
 /**
  * The Claude / ChatGPT-style "what the agent is doing" panel, rendered inline
  * in the conversation just above the assistant's answer. It folds the whole
- * run — reasoning ("Thinking"), tool calls (`web_search` / `fetch_url` /
+ * run — reasoning ("Thinking"), tool calls (`web_search` / `web_fetch` /
  * `rag_tool`), and graph steps — into one collapsible block:
  *
  * - while the run is live it stays open and shows a one-line status of the
@@ -35,13 +35,13 @@ import { Markdown } from './markdown';
 
 const TOOL_ICON: Record<string, LucideIcon> = {
   web_search: Search,
-  fetch_url: Globe,
+  web_fetch: Globe,
   rag_tool: Database,
 };
 
 const RUNNING_VERB: Record<string, string> = {
   web_search: 'Searching the web',
-  fetch_url: 'Reading a page',
+  web_fetch: 'Reading a page',
   rag_tool: 'Searching your files',
 };
 

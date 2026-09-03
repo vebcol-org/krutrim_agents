@@ -14,7 +14,7 @@ license: MIT
 ## How to Use
 
 1. Call `web_search` with a focused query (ticker + topic, e.g. `"AAPL Q3 2025 earnings guidance"`) rather than a broad one.
-2. When a result looks load-bearing for the analysis, call `fetch_url` on the specific source to read the full page rather than relying on the search snippet alone.
+2. When a result looks load-bearing for the analysis, call `web_fetch` on the specific source to read the full page rather than relying on the search snippet alone.
 3. Note the source and retrieval time for every fact you plan to use — the writer subagent needs this to cite sources in the final report.
 4. Prefer primary sources (exchange filings, company press releases, official statistics) over aggregator commentary when both are available.
 5. If search results conflict, say so explicitly rather than silently picking one.

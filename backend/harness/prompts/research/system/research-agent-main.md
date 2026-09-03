@@ -5,10 +5,8 @@ render_engine: f-string
 description: Composed research agent system prompt — core philosophy + topology + control flow + clarification + RAG protocol + tool catalog.
 variables:
   - core
-  - control_flow
   - clarification
   - rag_protocol
-  - tools_use
   - topology
 -->
 
@@ -16,10 +14,6 @@ variables:
 
 {topology}
 
-{control_flow}
-
 {clarification}
 
 {rag_protocol}
-
-{tools_use}
